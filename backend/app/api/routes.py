@@ -100,14 +100,20 @@ def get_latest_news(
 @router.post("/internal/collect")
 async def trigger_collection(
     x_internal_key: str = Header(alias="X-Internal-Key"),
-    db: Session = Depends(get_db),
 ):
     if x_internal_key != settings.internal_api_key:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     from app.services.collector import run_collection_cycle
+    from app.models.database import SessionLocal
     import asyncio
 
-    # 백그라운드로 실행
-    asyncio.create_task(run_collection_cycle(db))
+    async def _run():
+        db = SessionLocal()
+        try:
+            await run_collection_cycle(db)
+        finally:
+            db.close()
+
+    asyncio.create_task(_run())
     return {"message": "collection job accepted"}

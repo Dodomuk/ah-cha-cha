@@ -20,7 +20,7 @@ interface GeoFeature {
 
 // GeoJSON properties에서 국가 코드 추출 (여러 필드 fallback)
 function getCountryCode(props: Record<string, unknown>): string {
-  const code = props.iso_a2 || props.ISO_A2 || props.adm0_a3 || ''
+  const code = props['ISO3166-1-Alpha-2'] || props.iso_a2 || props.ISO_A2 || props.adm0_a3 || ''
   return String(code).toUpperCase()
 }
 

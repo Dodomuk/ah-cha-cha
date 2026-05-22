@@ -17,7 +17,7 @@ GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 
 async def fetch_security_news(limit: int = 75) -> list[dict]:
-    query = " OR ".join(f'"{kw}"' for kw in SECURITY_KEYWORDS[:8])
+    query = "(" + " OR ".join(f'"{kw}"' for kw in SECURITY_KEYWORDS[:8]) + ")"
     params = {
         "query": query,
         "mode": "artlist",
