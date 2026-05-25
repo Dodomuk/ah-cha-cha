@@ -17,10 +17,11 @@ export default function Header({ snapshotAt }: HeaderProps) {
 
   return (
     <header
-      className="flex items-center justify-between px-5 h-12 flex-shrink-0 z-20"
+      className="flex items-center justify-between h-12 shrink-0 z-20"
       style={{
-        background: 'rgba(3,7,30,0.95)',
-        borderBottom: '1px solid #00B4D820',
+        paddingInline: '28px',
+        background: 'rgba(0,0,0,0.92)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}
     >
       {/* 로고 */}
@@ -29,29 +30,36 @@ export default function Header({ snapshotAt }: HeaderProps) {
           className="text-lg font-bold tracking-tight"
           style={{
             color: '#00B4D8',
-            textShadow: '0 0 10px #00B4D8',
+            textShadow: '0 0 12px #00B4D880',
             fontFamily: 'monospace',
           }}
         >
           아차차
         </span>
-        <span className="text-[10px] text-[#7FBBCC] tracking-widest hidden sm:block">
-          SECURITY INTELLIGENCE, VISUALIZED
+        <span className="text-[10px] tracking-widest hidden sm:block" style={{ color: 'rgba(255,255,255,0.2)' }}>
+          SECURITY INTELLIGENCE
         </span>
       </div>
 
       {/* 갱신 시각 */}
       <div
-        className="text-[11px] text-[#7FBBCC] font-mono"
-        style={{ textShadow: '0 0 6px #00B4D840' }}
+        className="text-[11px] font-mono"
+        style={{ color: 'rgba(255,255,255,0.3)' }}
       >
         마지막 업데이트: {formatted}
       </div>
 
       {/* 광고 슬롯 */}
       <div
-        className="hidden lg:flex items-center justify-center text-[10px] text-[#30363D]"
-        style={{ width: 200, height: 36, border: '1px dashed #30363D', borderRadius: 4 }}
+        className="hidden lg:flex items-center justify-center text-[10px]"
+        style={{
+          width: 200,
+          height: 34,
+          borderRadius: 6,
+          border: '1px dashed rgba(255,255,255,0.08)',
+          color: 'rgba(255,255,255,0.15)',
+          marginRight: 4,
+        }}
       >
         AD
       </div>

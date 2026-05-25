@@ -13,7 +13,7 @@ export async function fetchCountries(): Promise<CountriesResponse> {
 
 export async function fetchCountryNews(
   code: string,
-  hours = 24,
+  hours = 168,
   limit = 20
 ): Promise<CountryNewsResponse> {
   const { data } = await client.get<CountryNewsResponse>(

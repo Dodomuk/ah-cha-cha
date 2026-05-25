@@ -46,7 +46,7 @@ def get_countries(db: Session = Depends(get_db)):
 @router.get("/countries/{code}/news", response_model=CountryNewsResponse)
 def get_country_news(
     code: str,
-    hours: int = 24,
+    hours: int = 168,
     limit: int = 20,
     db: Session = Depends(get_db),
 ):
@@ -57,7 +57,7 @@ def get_country_news(
     articles = db.execute(
         select(NewsArticle)
         .where(
-            NewsArticle.country_codes.contains([code]),
+            NewsArticle.country_codes.any(code),
             NewsArticle.collected_at >= cutoff,
             NewsArticle.ai_processed.is_(True),
         )
@@ -116,4 +116,42 @@ async def trigger_collection(
             db.close()
 
     asyncio.create_task(_run())
-    return {"message": "collection job accepted"}
+    mode = "TEST_MODE(요약 제외)" if settings.test_mode else "자동 요약 포함"
+    return {"message": f"collection job accepted [{mode}]"}
+
+
+@router.post("/internal/summarize")
+async def trigger_summarization(
+    x_internal_key: str = Header(alias="X-Internal-Key"),
+):
+    """미처리 기사들을 Claude API로 요약한다. TEST_MODE에서 수동 실행용."""
+    if x_internal_key != settings.internal_api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from app.services.collector import run_summarization_cycle
+    from app.models.database import SessionLocal
+    from sqlalchemy import select
+    from app.models.news import NewsArticle
+
+    db = SessionLocal()
+    try:
+        pending_count = db.execute(
+            select(func.count()).select_from(NewsArticle).where(NewsArticle.ai_processed.is_(False))
+        ).scalar()
+    finally:
+        db.close()
+
+    if pending_count == 0:
+        return {"message": "요약 대기 기사 없음", "pending": 0}
+
+    import asyncio
+
+    async def _run():
+        db = SessionLocal()
+        try:
+            await run_summarization_cycle(db)
+        finally:
+            db.close()
+
+    asyncio.create_task(_run())
+    return {"message": f"summarization job accepted", "pending": pending_count}

@@ -18,7 +18,6 @@ interface GeoFeature {
   geometry: Geometry
 }
 
-// GeoJSON properties에서 국가 코드 추출 (여러 필드 fallback)
 function getCountryCode(props: Record<string, unknown>): string {
   const code = props['ISO3166-1-Alpha-2'] || props.iso_a2 || props.ISO_A2 || props.adm0_a3 || ''
   return String(code).toUpperCase()
@@ -32,8 +31,10 @@ export default function WorldMap({ threatData }: WorldMapProps) {
   const pathGeneratorRef = useRef<d3.GeoPath | null>(null)
   const hoveredCodeRef = useRef<string | null>(null)
   const animFrameRef = useRef<number>(0)
+  const pathCacheRef = useRef<Map<number, Path2D>>(new Map())
+  const lastMouseRef = useRef({ time: 0, x: -999, y: -999 })
 
-  const { selectCountry } = useAppStore()
+  const { selectCountry, closePanel } = useAppStore()
 
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false, x: 0, y: 0, countryName: '', threatLevel: 0,
@@ -49,46 +50,56 @@ export default function WorldMap({ threatData }: WorldMapProps) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const dpr = window.devicePixelRatio || 1
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    // 배경
-    ctx.fillStyle = '#03071E'
+    ctx.fillStyle = '#000000'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     const features = geo.features as GeoFeature[]
 
-    for (const feature of features) {
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i]
       const code = getCountryCode(feature.properties)
       const threat = threatData[code]
+      const hasData = !!threat
       const level = (threat?.threat_level ?? 0) as ThreatLevel
       const config = THREAT_CONFIG[level]
       const isHovered = code === hoveredCode
 
-      const path2D = new Path2D(pathGen(feature as unknown as d3.GeoPermissibleObjects) || '')
+      let path2D = pathCacheRef.current.get(i)
+      if (!path2D) {
+        path2D = new Path2D(pathGen(feature as unknown as d3.GeoPermissibleObjects) || '')
+        pathCacheRef.current.set(i, path2D)
+      }
 
-      // fill
       ctx.save()
-      ctx.shadowBlur = isHovered ? config.shadowBlur * 2 : config.shadowBlur
-      ctx.shadowColor = config.glow
-      ctx.fillStyle = config.fill
+      if (hasData) {
+        ctx.shadowBlur = isHovered ? config.shadowBlur * 2 : config.shadowBlur
+        ctx.shadowColor = config.glow
+      }
+      ctx.fillStyle = isHovered && !hasData ? '#181818' : config.fill
       ctx.fill(path2D)
       ctx.restore()
 
-      // stroke (경계선)
       ctx.save()
-      ctx.shadowBlur = isHovered ? 12 : 4
-      ctx.shadowColor = THREAT_STROKE[level]
-      ctx.strokeStyle = isHovered
-        ? THREAT_STROKE[level]
-        : level === 0 ? '#00B4D8' : THREAT_STROKE[level]
-      ctx.lineWidth = (config.strokeWidth / (window.devicePixelRatio || 1)) * (isHovered ? 1.8 : 1)
+      if (hasData && isHovered) {
+        ctx.shadowBlur = 12
+        ctx.shadowColor = THREAT_STROKE[level]
+        ctx.strokeStyle = THREAT_STROKE[level]
+        ctx.lineWidth = (config.strokeWidth / (window.devicePixelRatio || 1)) * 1.8
+      } else if (hasData) {
+        ctx.shadowBlur = 4
+        ctx.shadowColor = THREAT_STROKE[level]
+        ctx.strokeStyle = THREAT_STROKE[level]
+        ctx.lineWidth = config.strokeWidth / (window.devicePixelRatio || 1)
+      } else {
+        ctx.strokeStyle = '#1e2a2a'
+        ctx.lineWidth = 0.4 / (window.devicePixelRatio || 1)
+      }
       ctx.stroke(path2D)
       ctx.restore()
     }
   }, [threatData])
 
-  // 리사이즈 + 초기 렌더
   const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -112,11 +123,11 @@ export default function WorldMap({ threatData }: WorldMapProps) {
 
     projectionRef.current = projection
     pathGeneratorRef.current = d3.geoPath().projection(projection)
+    pathCacheRef.current.clear()
 
     drawMap(hoveredCodeRef.current)
   }, [drawMap])
 
-  // GeoJSON 로드
   useEffect(() => {
     fetch('/data/world.geojson')
       .then((r) => r.json())
@@ -126,19 +137,16 @@ export default function WorldMap({ threatData }: WorldMapProps) {
       })
   }, [setupCanvas])
 
-  // threatData 변경 시 재렌더
   useEffect(() => {
     drawMap(hoveredCodeRef.current)
   }, [threatData, drawMap])
 
-  // 리사이즈 감지
   useEffect(() => {
     const observer = new ResizeObserver(() => setupCanvas())
     if (containerRef.current) observer.observe(containerRef.current)
     return () => observer.disconnect()
   }, [setupCanvas])
 
-  // 마우스 이벤트
   const getFeatureAtPoint = useCallback((x: number, y: number): GeoFeature | null => {
     const geo = geoDataRef.current
     const projection = projectionRef.current
@@ -153,7 +161,7 @@ export default function WorldMap({ threatData }: WorldMapProps) {
           return feature
         }
       } catch {
-        // 일부 피처에서 에러 발생 가능, 무시
+        // ignore
       }
     }
     return null
@@ -163,6 +171,13 @@ export default function WorldMap({ threatData }: WorldMapProps) {
     const canvas = canvasRef.current
     if (!canvas) return
 
+    const now = performance.now()
+    const last = lastMouseRef.current
+    const dx = e.clientX - last.x
+    const dy = e.clientY - last.y
+    if (now - last.time < 25 && dx * dx + dy * dy < 9) return
+    lastMouseRef.current = { time: now, x: e.clientX, y: e.clientY }
+
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
@@ -171,6 +186,7 @@ export default function WorldMap({ threatData }: WorldMapProps) {
     if (feature) {
       const code = getCountryCode(feature.properties)
       const threat = threatData[code]
+      const hasData = !!threat
       const level = (threat?.threat_level ?? 0) as ThreatLevel
 
       if (hoveredCodeRef.current !== code) {
@@ -186,7 +202,7 @@ export default function WorldMap({ threatData }: WorldMapProps) {
         countryName: String(feature.properties.name || code),
         threatLevel: level,
       })
-      canvas.style.cursor = 'pointer'
+      canvas.style.cursor = hasData ? 'pointer' : 'default'
     } else {
       if (hoveredCodeRef.current !== null) {
         hoveredCodeRef.current = null
@@ -216,14 +232,17 @@ export default function WorldMap({ threatData }: WorldMapProps) {
     const feature = getFeatureAtPoint(x, y)
     if (feature) {
       const code = getCountryCode(feature.properties)
-      if (code) {
-        selectCountry(code, String(feature.properties.name || code))
+      const hasData = !!threatData[code]
+      if (code && hasData) {
+        selectCountry(code, String(feature.properties.name || code), e.clientX, e.clientY)
       }
+    } else {
+      closePanel()
     }
-  }, [getFeatureAtPoint, selectCountry])
+  }, [getFeatureAtPoint, threatData, selectCountry, closePanel])
 
   return (
-    <div ref={containerRef} className="w-full h-full relative bg-[#03071E]">
+    <div ref={containerRef} className="w-full h-full relative bg-black">
       <canvas
         ref={canvasRef}
         onMouseMove={handleMouseMove}

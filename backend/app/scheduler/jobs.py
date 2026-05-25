@@ -29,13 +29,13 @@ def start_scheduler() -> None:
     # 한국 시간 6,8,10,12,14,16,18,20,22,0시 (9회)
     scheduler.add_job(
         collection_job,
-        CronTrigger(hour="0,6,8,10,12,14,16,18,20,22", minute=5, timezone="Asia/Seoul"),
+        CronTrigger(hour=6, minute=0, timezone="Asia/Seoul"),
         id="news_collection",
         replace_existing=True,
         misfire_grace_time=300,
     )
     scheduler.start()
-    logger.info("Scheduler started (runs at :05 of 0,6,8,10,12,14,16,18,20,22 KST)")
+    logger.info("Scheduler started (runs daily at 06:00 KST)")
 
 
 def stop_scheduler() -> None:

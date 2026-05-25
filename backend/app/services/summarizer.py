@@ -6,6 +6,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 SYSTEM_PROMPT = """당신은 사이버 보안 뉴스 분석가입니다.
 주어진 뉴스 기사를 분석하여 JSON 형식으로 정보를 추출합니다.
 모든 텍스트 출력은 반드시 한국어로 작성하세요."""
@@ -34,43 +35,53 @@ country_codes에는 사건과 직접 관련된 국가만 ISO 3166-1 alpha-2 코�
 국가를 특정할 수 없으면 빈 배열 []을 반환하세요."""
 
 
-async def summarize_article(title: str) -> dict | None:
+async def summarize_article(title: str) -> tuple[dict | None, dict]:
+    """Returns (result, token_usage). token_usage = {"input": 0, "output": 0} on failure."""
+    zero_usage = {"input": 0, "output": 0}
+
     if not settings.claude_api_key:
         logger.warning("CLAUDE_API_KEY not set, skipping summarization")
-        return None
+        return None, zero_usage
 
     client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
     try:
         message = await client.messages.create(
-            model="claude-haiku-4-5",
+            model="claude-haiku-4-5-20251001",
             max_tokens=512,
             system=SYSTEM_PROMPT,
             messages=[
                 {"role": "user", "content": USER_PROMPT_TEMPLATE.format(title=title[:500])}
             ],
         )
+        usage = {
+            "input": message.usage.input_tokens,
+            "output": message.usage.output_tokens,
+        }
         raw = message.content[0].text.strip()
-        # JSON 블록이 마크다운 코드펜스로 감싸진 경우 처리
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        return json.loads(raw)
+        return json.loads(raw), usage
     except json.JSONDecodeError:
         logger.error(f"JSON parse failed for title: {title[:80]}")
-        return None
+        return None, zero_usage
     except Exception as e:
         logger.error(f"Claude API error: {e}")
-        return None
+        return None, zero_usage
 
 
-async def summarize_batch(articles: list[dict], concurrency: int = 5) -> list[dict]:
+async def summarize_batch(articles: list[dict], concurrency: int = 5) -> tuple[list[dict], dict]:
+    """Returns (processed_articles, total_token_usage)."""
     semaphore = asyncio.Semaphore(concurrency)
+    total_tokens = {"input": 0, "output": 0}
 
     async def _process(article: dict) -> dict:
         async with semaphore:
-            result = await summarize_article(article.get("source_title", ""))
+            result, usage = await summarize_article(article.get("source_title", ""))
+            total_tokens["input"] += usage["input"]
+            total_tokens["output"] += usage["output"]
             if result:
                 article.update(result)
                 article["ai_processed"] = True
@@ -81,4 +92,5 @@ async def summarize_batch(articles: list[dict], concurrency: int = 5) -> list[di
             return article
 
     tasks = [_process(a) for a in articles]
-    return await asyncio.gather(*tasks)
+    processed = await asyncio.gather(*tasks)
+    return list(processed), total_tokens

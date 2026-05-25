@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+@keyframes wordFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+@keyframes dotPop {
+  from { opacity: 0; transform: scale(0) rotate(-45deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0deg);   }
+}
+@keyframes lineExpand {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes lineGrow {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -12,7 +33,7 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #03071e;
+  background: #000000;
   color: #e0fbfc;
 }
 
@@ -21,7 +42,7 @@ body,
   width: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d1b2a;
+  background: #0a0a0a;
 }
 ::-webkit-scrollbar-thumb {
   background: #00b4d840;

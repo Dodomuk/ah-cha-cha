@@ -10,10 +10,10 @@ export const THREAT_CONFIG: Record<ThreatLevel, {
 }> = {
   0: {
     label: '이상 없음',
-    fill: '#050A1A',
-    glow: '#0077B6',
+    fill: '#0a0a0a',
+    glow: '#1a3a4a',
     strokeWidth: 0.5,
-    shadowBlur: 6,
+    shadowBlur: 0,
     badge: 'bg-sky-900 text-sky-300',
   },
   1: {

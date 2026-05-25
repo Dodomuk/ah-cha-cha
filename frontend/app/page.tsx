@@ -14,7 +14,7 @@ export default function HomePage() {
   const threatData = data?.countries ?? {}
 
   return (
-    <div className="flex flex-col h-full w-full" style={{ background: '#03071E' }}>
+    <div className="flex flex-col h-full w-full" style={{ background: '#000000' }}>
       <Header snapshotAt={data?.snapshot_at} />
 
       {/* 지도 + 패널 영역 */}
