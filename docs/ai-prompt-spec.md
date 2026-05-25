@@ -1,23 +1,37 @@
 # 아차차 — AI 프롬프트 명세
 
-**버전:** 0.1
+**버전:** 0.2
 **작성일:** 2026-05-21
-**모델:** claude-haiku-4-5
+**최종 수정:** 2026-05-25
+**모델:** `claude-haiku-4-5-20251001`
 
 ---
 
 ## 1. 목적
 
-GDELT에서 수집한 원문 뉴스를 Claude Haiku API로 처리하여 아래를 추출:
+RSS 피드에서 수집한 보안 뉴스 제목을 Claude Haiku API로 처리하여 아래를 추출:
 1. 한국어 한 줄 요약 제목
 2. 사건 개요 (한국어, 3~5문장)
 3. 피해/영향 요약 (한국어, 2~3문장)
 4. 위협 레벨 (0~4 정수)
-5. 관련 국가 ISO 코드 배열
+5. 관련 국가 ISO 3166-1 alpha-2 코드 배열
+
+> **입력 데이터:** 기사 본문이 아닌 **제목(source_title)만** 사용한다. RSS 피드 특성상 본문 접근이 불필요하며, 제목 앞 500자로 잘라 전송한다.
 
 ---
 
-## 2. 시스템 프롬프트
+## 2. 데이터 수집 출처 (RSS)
+
+| 피드명 | 도메인 |
+|--------|--------|
+| The Hacker News | thehackernews.com |
+| BleepingComputer | bleepingcomputer.com |
+| Krebs on Security | krebsonsecurity.com |
+| Dark Reading | darkreading.com |
+
+---
+
+## 3. 시스템 프롬프트
 
 ```
 당신은 사이버 보안 뉴스 분석가입니다.
@@ -27,13 +41,12 @@ GDELT에서 수집한 원문 뉴스를 Claude Haiku API로 처리하여 아래�
 
 ---
 
-## 3. 유저 프롬프트 템플릿
+## 4. 유저 프롬프트 템플릿
 
 ```
 다음 보안 뉴스 기사를 분석하고 JSON으로 응답하세요.
 
-제목: {source_title}
-본문: {article_body}
+제목: {title}
 
 다음 형식으로만 응답하세요 (다른 텍스트 없이):
 {
@@ -51,19 +64,31 @@ GDELT에서 수집한 원문 뉴스를 Claude Haiku API로 처리하여 아래�
 - 3: 금융기관/기업 침해, 대규모 데이터 유출
 - 4: 국가기반시설 공격, 사이버전, 대규모 랜섬웨어
 
-country_codes에는 해당 사건과 직접 관련된 국가만 포함하세요.
+country_codes에는 사건과 직접 관련된 국가만 ISO 3166-1 alpha-2 코드로 포함하세요.
 국가를 특정할 수 없으면 빈 배열 []을 반환하세요.
 ```
 
 ---
 
-## 4. 응답 예시
+## 5. 위협 레벨 상세 기준
+
+| 레벨 | 이름 | 설명 | 예시 |
+|------|------|------|------|
+| 0 | 정보 없음 | 보안과 무관하거나 경미한 일반 정보 | 제품 출시 발표, 보안 컨퍼런스 일정 |
+| 1 | 낮음 | 보안 패치 권고, 취약점 발견, 경미한 피싱 | CVE 발표, 소프트웨어 업데이트 권고 |
+| 2 | 중간 | 소규모 해킹, 데이터 유출, 취약점 악용 | 중소기업 해킹, 수만 건 개인정보 유출 |
+| 3 | 높음 | 금융기관/기업 침해, 대규모 데이터 유출 | 은행 해킹, 수백만 건 이상 유출 |
+| 4 | 심각 | 국가기반시설 공격, 사이버전, 대규모 랜섬웨어 | 병원/전력망 랜섬웨어, 국가 지원 공격 |
+
+> **지도 표시 기준:** 국가별 최근 168시간(7일) 내 기사의 **최고 threat_level** 값이 지도 색상에 반영된다. threat_level이 0이거나 country_codes가 비어있는 기사는 지도에 표시되지 않는다.
+
+---
+
+## 6. 응답 예시
 
 ### 입력
 ```
 제목: Major Ransomware Attack Hits South Korean Hospitals
-본문: A widespread ransomware attack targeted at least 12 hospitals
-in South Korea on Tuesday, disrupting patient management systems...
 ```
 
 ### 출력
@@ -79,25 +104,38 @@ in South Korea on Tuesday, disrupting patient management systems...
 
 ---
 
-## 5. 에러 처리
+## 7. 에러 처리
 
 | 상황 | 처리 방법 |
 |------|-----------|
-| JSON 파싱 실패 | 재시도 1회, 이후 `ai_processed=false` 유지 |
+| JSON 파싱 실패 | `ai_processed=false` 유지, 다음 사이클에 재시도 |
 | 보안 무관 뉴스 | `threat_level: 0` 으로 저장, 지도에 반영 안 함 |
 | 국가 특정 불가 | `country_codes: []` 로 저장 |
-| API 호출 실패 | 최대 3회 재시도 (지수 백오프) |
+| API 키 미설정 | 요약 건너뜀, 경고 로그 출력 |
+| API 호출 실패 (429 등) | `ai_processed=false` 유지 |
 
 ---
 
-## 6. 비용 추정
+## 8. 스케줄 및 운영 방식
+
+| 항목 | 내용 |
+|------|------|
+| RSS 수집 스케줄 | 매일 06:00 KST (APScheduler) |
+| AI 요약 실행 | `TEST_MODE=false` 시 수집 직후 자동 실행 |
+| TEST_MODE | 수집만 자동 실행, 요약은 `POST /api/internal/summarize` 수동 트리거 |
+| 동시 처리 수 | 3건 (`asyncio.Semaphore(3)`) — 429 방지 |
+| 처리 배치 크기 | 최대 100건/회 |
+| 사용량 로그 | `backend/logs/api_usage.log` (JSON Lines) |
+
+---
+
+## 9. 비용
 
 | 항목 | 수치 |
 |------|------|
-| 1회 갱신 처리 건수 | 약 50건 |
-| 1건당 입력 토큰 | ~500 tokens |
-| 1건당 출력 토큰 | ~200 tokens |
-| 1일 처리 건수 | 50 × 9회 = 450건 |
 | Haiku 입력 가격 | $0.80 / 1M tokens |
 | Haiku 출력 가격 | $4.00 / 1M tokens |
-| **월 추정 비용** | **~$5~15** |
+| 1건당 입력 토큰 | ~350 tokens |
+| 1건당 출력 토큰 | ~200 tokens |
+| 실측 1회 처리 비용 (75건) | ~$0.14 |
+| **월 추정 비용 (1회/일)** | **~$4~5** |

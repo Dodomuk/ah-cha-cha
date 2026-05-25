@@ -72,7 +72,7 @@ async def summarize_article(title: str) -> tuple[dict | None, dict]:
         return None, zero_usage
 
 
-async def summarize_batch(articles: list[dict], concurrency: int = 5) -> tuple[list[dict], dict]:
+async def summarize_batch(articles: list[dict], concurrency: int = 3) -> tuple[list[dict], dict]:
     """Returns (processed_articles, total_token_usage)."""
     semaphore = asyncio.Semaphore(concurrency)
     total_tokens = {"input": 0, "output": 0}

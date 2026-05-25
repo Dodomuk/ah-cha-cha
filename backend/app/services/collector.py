@@ -131,7 +131,7 @@ async def run_summarization_cycle(db: Session) -> dict:
 
 def _update_threat_snapshot(db: Session) -> None:
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=24)
+    cutoff = now - timedelta(hours=168)
 
     rows = db.execute(
         select(NewsArticle.country_codes, NewsArticle.threat_level)
