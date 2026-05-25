@@ -148,20 +148,18 @@ export default function WorldMap({ threatData }: WorldMapProps) {
   }, [setupCanvas])
 
   const getFeatureAtPoint = useCallback((x: number, y: number): GeoFeature | null => {
+    const canvas = canvasRef.current
     const geo = geoDataRef.current
-    const projection = projectionRef.current
-    if (!geo || !projection) return null
+    if (!canvas || !geo) return null
 
-    const coords = projection.invert?.([x, y])
-    if (!coords) return null
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
 
-    for (const feature of geo.features as GeoFeature[]) {
-      try {
-        if (d3.geoContains(feature as unknown as d3.GeoPermissibleObjects, coords)) {
-          return feature
-        }
-      } catch {
-        // ignore
+    const features = geo.features as GeoFeature[]
+    for (let i = 0; i < features.length; i++) {
+      const path2D = pathCacheRef.current.get(i)
+      if (path2D && ctx.isPointInPath(path2D, x, y)) {
+        return features[i]
       }
     }
     return null

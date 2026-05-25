@@ -25,6 +25,14 @@ function calcPosition(cx: number, cy: number): { left: number; top: number } {
 
 const LEVEL_ICON: Record<number, string> = { 4: '🔴', 3: '🟠', 2: '🟡', 1: '🟢', 0: '⚪' }
 
+function getFlagEmoji(code: string): string {
+  return code
+    .toUpperCase()
+    .split('')
+    .map(c => String.fromCodePoint(127397 + c.charCodeAt(0)))
+    .join('')
+}
+
 export default function CountryPanel() {
   const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel } = useAppStore()
   const { data, isLoading } = useCountryNews(selectedCountryCode)
@@ -89,9 +97,13 @@ export default function CountryPanel() {
       {/* 헤더 */}
       <div className="flex items-start justify-between px-5 pt-4 pb-3 shrink-0">
         <div className="flex flex-col gap-1.5 min-w-0 pr-3">
-          {/* 국가명 */}
+          {/* 국가명 + 국기 */}
           <div className="flex items-center gap-2">
-            <span className="text-[11px]">{LEVEL_ICON[level]}</span>
+            {selectedCountryCode && (
+              <span className="text-[18px] leading-none">
+                {getFlagEmoji(selectedCountryCode)}
+              </span>
+            )}
             <span
               className="font-bold text-[17px] text-white truncate tracking-tight"
               style={{ textShadow: `0 0 20px ${color}50` }}
@@ -99,20 +111,12 @@ export default function CountryPanel() {
               {selectedCountryName || '국가 선택'}
             </span>
           </div>
-          {/* 위협 레벨 + 기사 수 */}
-          {data && (
+          {/* 기사 수 */}
+          {data && data.articles.length > 0 && (
             <div className="flex items-center gap-2">
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${config.badge}`}
-                style={{ boxShadow: `0 0 10px ${color}40` }}
-              >
-                {config.label}
+              <span className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                보안 이슈 {data.articles.length}건
               </span>
-              {data.articles.length > 0 && (
-                <span className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                  · 보안 이슈 {data.articles.length}건
-                </span>
-              )}
             </div>
           )}
         </div>

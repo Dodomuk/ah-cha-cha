@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import Header from '@/components/layout/Header'
 import CountryPanel from '@/components/panel/CountryPanel'
-import ThreatLegend from '@/components/map/ThreatLegend'
+import DailyReportPanel from '@/components/report/DailyReportPanel'
 import { useCountries } from '@/hooks/useCountries'
 
 // Canvas 컴포넌트는 SSR 불가
@@ -32,11 +32,11 @@ export default function HomePage() {
           <WorldMap threatData={threatData} />
         )}
 
-        {/* 위협 레벨 범례 */}
-        <ThreatLegend />
-
         {/* 국가 상세 패널 */}
         <CountryPanel />
+
+        {/* 일일 보안 리포트 */}
+        <DailyReportPanel />
       </div>
     </div>
   )

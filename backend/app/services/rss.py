@@ -7,10 +7,15 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 SECURITY_RSS_FEEDS = [
+    # 글로벌
     "https://feeds.feedburner.com/TheHackersNews",
     "https://www.bleepingcomputer.com/feed/",
     "https://krebsonsecurity.com/feed/",
     "https://www.darkreading.com/rss.xml",
+    # 국내
+    "https://asec.ahnlab.com/ko/feed/",
+    "https://www.boannews.com/rss/news.xml",
+    "https://www.dailysecu.com/rss/allArticle.xml",
 ]
 
 

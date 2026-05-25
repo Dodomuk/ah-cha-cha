@@ -28,6 +28,10 @@ export interface CountryNewsResponse {
   articles: NewsArticle[]
 }
 
+export interface LatestNewsResponse {
+  articles: NewsArticle[]
+}
+
 export interface TooltipState {
   visible: boolean
   x: number

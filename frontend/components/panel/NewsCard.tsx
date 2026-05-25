@@ -1,7 +1,7 @@
 'use client'
 
 import { NewsArticle } from '@/types'
-import { THREAT_STROKE, THREAT_LABEL, THREAT_CONFIG } from '@/lib/threatColors'
+import { THREAT_STROKE } from '@/lib/threatColors'
 
 interface Props {
   article: NewsArticle
@@ -123,8 +123,6 @@ function AnimatedSection({ icon, label, text, color, startDelay, isLast }: Secti
 
 export default function NewsCard({ article, cardIndex = 0 }: Props) {
   const color = THREAT_STROKE[article.threat_level]
-  const label = THREAT_LABEL[article.threat_level]
-  const badgeClass = THREAT_CONFIG[article.threat_level].badge
 
   // 카드 인덱스에 따라 전체 타임라인 오프셋
   const base = Math.min(cardIndex, 2) * 180
@@ -137,25 +135,29 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
 
   return (
     <div
-      className="rounded-xl p-3 mb-2.5 text-sm"
+      className="rounded-xl p-4 mb-4 text-sm"
       style={{
         background: 'rgba(255,255,255,0.025)',
         border: '1px solid rgba(255,255,255,0.05)',
         borderLeft: `2px solid ${color}60`,
       }}
     >
-      {/* 배지 + 제목 */}
-      <div className="flex items-start gap-2 mb-3">
-        <span
-          className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 font-mono font-bold ${badgeClass}`}
+      {/* 컬러 닷 + 제목 */}
+      <div className="flex items-start gap-2.5 mb-3">
+        <div
           style={{
+            flexShrink: 0,
+            marginTop: 4,
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: color,
+            boxShadow: `0 0 6px ${color}, 0 0 12px ${color}60`,
             opacity: 0,
-            animation: 'fadeSlideIn 0.2s ease forwards',
+            animation: 'dotPop 0.2s cubic-bezier(0.34,1.56,0.64,1) forwards',
             animationDelay: `${base}ms`,
           }}
-        >
-          {label}
-        </span>
+        />
         <p className="text-[#E0FBFC] font-semibold leading-snug text-[13px]">
           {titleWords.map((word, i) => (
             <AnimatedWord key={i} word={word} delay={base + 60 + i * 50} />

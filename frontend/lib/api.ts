@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { CountriesResponse, CountryNewsResponse } from '@/types'
+import { CountriesResponse, CountryNewsResponse, LatestNewsResponse } from '@/types'
 
 const client = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000',
@@ -20,5 +20,12 @@ export async function fetchCountryNews(
     `/api/countries/${code}/news`,
     { params: { hours, limit } }
   )
+  return data
+}
+
+export async function fetchLatestNews(limit = 100): Promise<LatestNewsResponse> {
+  const { data } = await client.get<LatestNewsResponse>('/api/news/latest', {
+    params: { limit, min_level: 1 },
+  })
   return data
 }
