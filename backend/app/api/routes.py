@@ -14,33 +14,39 @@ router = APIRouter()
 
 
 @router.get("/countries", response_model=CountriesResponse)
-def get_countries(db: Session = Depends(get_db)):
-    # 국가별 최신 스냅샷 조회 (DISTINCT ON)
-    subq = (
-        select(
-            CountryThreatLevel.country_code,
-            CountryThreatLevel.threat_level,
-            CountryThreatLevel.article_count,
-            CountryThreatLevel.snapshot_at,
-        )
-        .distinct(CountryThreatLevel.country_code)
-        .order_by(CountryThreatLevel.country_code, CountryThreatLevel.snapshot_at.desc())
-        .subquery()
-    )
+def get_countries(hours: int = 168, db: Session = Depends(get_db)):
+    hours = min(max(hours, 1), 168)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    rows = db.execute(select(subq)).all()
+    rows = db.execute(
+        select(NewsArticle.country_codes, NewsArticle.threat_level)
+        .where(
+            NewsArticle.collected_at >= cutoff,
+            NewsArticle.threat_level > 0,
+            NewsArticle.ai_processed.is_(True),
+            NewsArticle.country_codes.isnot(None),
+        )
+    ).all()
+
+    country_max: dict[str, int] = {}
+    country_count: dict[str, int] = {}
+    for codes, level in rows:
+        for code in (codes or []):
+            code = code.upper()
+            if not code:
+                continue
+            country_max[code] = max(country_max.get(code, 0), level)
+            country_count[code] = country_count.get(code, 0) + 1
 
     countries: dict[str, CountryThreatOut] = {
-        row.country_code: CountryThreatOut(
-            threat_level=row.threat_level,
-            article_count=row.article_count,
-        )
-        for row in rows
+        code: CountryThreatOut(threat_level=level, article_count=country_count[code])
+        for code, level in country_max.items()
     }
 
-    snapshot_at = max((r.snapshot_at for r in rows), default=datetime.now(timezone.utc))
-
-    return CountriesResponse(snapshot_at=snapshot_at, countries=countries)
+    return CountriesResponse(
+        snapshot_at=datetime.now(timezone.utc),
+        countries=countries,
+    )
 
 
 @router.get("/countries/{code}/news", response_model=CountryNewsResponse)

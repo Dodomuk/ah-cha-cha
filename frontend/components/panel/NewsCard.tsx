@@ -112,7 +112,7 @@ function AnimatedSection({ icon, label, text, color, startDelay, isLast }: Secti
       </div>
 
       {/* 단어별 애니메이션 텍스트 */}
-      <p className="text-[12px] leading-relaxed" style={{ color: '#b0ccd8' }}>
+      <p className="text-[13px] font-medium leading-relaxed" style={{ color: '#c8dfe8' }}>
         {words.map((word, i) => (
           <AnimatedWord key={i} word={word} delay={wordBaseDelay + i * 45} />
         ))}
@@ -135,8 +135,10 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
 
   return (
     <div
-      className="rounded-xl p-4 mb-4 text-sm"
+      className="rounded-xl text-sm"
       style={{
+        padding: 18,
+        marginBottom: 28,
         background: 'rgba(255,255,255,0.025)',
         border: '1px solid rgba(255,255,255,0.05)',
         borderLeft: `2px solid ${color}60`,
@@ -190,8 +192,10 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
 
       {/* 출처 + 링크 */}
       <div
-        className="flex items-center justify-between mt-2 pt-2"
+        className="flex items-center justify-between"
         style={{
+          marginTop: 20,
+          paddingTop: 12,
           borderTop: '1px solid rgba(255,255,255,0.05)',
           opacity: 0,
           animation: 'fadeSlideIn 0.2s ease forwards',

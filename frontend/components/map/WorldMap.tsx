@@ -10,6 +10,7 @@ import MapTooltip from './MapTooltip'
 
 interface WorldMapProps {
   threatData: Record<string, CountryThreat>
+  hours: number
 }
 
 interface GeoFeature {
@@ -23,7 +24,7 @@ function getCountryCode(props: Record<string, unknown>): string {
   return String(code).toUpperCase()
 }
 
-export default function WorldMap({ threatData }: WorldMapProps) {
+export default function WorldMap({ threatData, hours }: WorldMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const geoDataRef = useRef<FeatureCollection | null>(null)
@@ -139,7 +140,7 @@ export default function WorldMap({ threatData }: WorldMapProps) {
 
   useEffect(() => {
     drawMap(hoveredCodeRef.current)
-  }, [threatData, drawMap])
+  }, [threatData, drawMap, hours])
 
   useEffect(() => {
     const observer = new ResizeObserver(() => setupCanvas())

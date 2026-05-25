@@ -6,7 +6,7 @@ import { useCountryNews } from '@/hooks/useCountryNews'
 import { THREAT_STROKE, THREAT_CONFIG, THREAT_LABEL } from '@/lib/threatColors'
 import NewsCard from './NewsCard'
 
-const POPUP_W = 420
+const POPUP_W = 520
 const POPUP_MAX_H = 580
 
 function calcPosition(cx: number, cy: number): { left: number; top: number } {
@@ -34,8 +34,8 @@ function getFlagEmoji(code: string): string {
 }
 
 export default function CountryPanel() {
-  const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel } = useAppStore()
-  const { data, isLoading } = useCountryNews(selectedCountryCode)
+  const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel, hours } = useAppStore()
+  const { data, isLoading } = useCountryNews(selectedCountryCode, hours)
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -142,7 +142,7 @@ export default function CountryPanel() {
       <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginInline: 20, flexShrink: 0 }} />
 
       {/* 뉴스 목록 */}
-      <div className="flex-1 overflow-y-auto px-4 py-3" style={{ minHeight: 0 }}>
+      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: '12px 20px' }}>
         {isLoading && (
           <div className="flex items-center justify-center h-32 font-mono text-sm" style={{ color: 'rgba(255,255,255,0.25)' }}>
             <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>로딩 중...</span>

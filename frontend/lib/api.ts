@@ -6,8 +6,10 @@ const client = axios.create({
   timeout: 10000,
 })
 
-export async function fetchCountries(): Promise<CountriesResponse> {
-  const { data } = await client.get<CountriesResponse>('/api/countries')
+export async function fetchCountries(hours = 168): Promise<CountriesResponse> {
+  const { data } = await client.get<CountriesResponse>('/api/countries', {
+    params: { hours },
+  })
   return data
 }
 
