@@ -35,12 +35,22 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
   const pathCacheRef = useRef<Map<number, Path2D>>(new Map())
   const lastMouseRef = useRef({ time: 0, x: -999, y: -999 })
 
+  // Ref로 threatData를 보관해 drawMap을 안정적(stable)으로 유지
+  // → threatData가 바뀌어도 GeoJSON 재요청·setupCanvas 재실행이 발생하지 않음
+  const threatDataRef = useRef(threatData)
+
   const { selectCountry, closePanel } = useAppStore()
 
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false, x: 0, y: 0, countryName: '', threatLevel: 0,
   })
 
+  // threatData가 바뀌면 ref만 업데이트 (deps 체인 전파 없음)
+  useEffect(() => {
+    threatDataRef.current = threatData
+  }, [threatData])
+
+  // drawMap은 deps 없이 stable — threatData는 ref에서 읽음
   const drawMap = useCallback((hoveredCode: string | null = null) => {
     const canvas = canvasRef.current
     const geo = geoDataRef.current
@@ -51,6 +61,8 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const td = threatDataRef.current
+
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.fillStyle = '#000000'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -60,7 +72,7 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     for (let i = 0; i < features.length; i++) {
       const feature = features[i]
       const code = getCountryCode(feature.properties)
-      const threat = threatData[code]
+      const threat = td[code]
       const hasData = !!threat
       const level = (threat?.threat_level ?? 0) as ThreatLevel
       const config = THREAT_CONFIG[level]
@@ -99,8 +111,9 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
       ctx.stroke(path2D)
       ctx.restore()
     }
-  }, [threatData])
+  }, []) // stable — threatData는 ref에서 직접 읽음
 
+  // setupCanvas도 stable (drawMap이 stable이므로)
   const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -129,6 +142,7 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     drawMap(hoveredCodeRef.current)
   }, [drawMap])
 
+  // GeoJSON은 마운트 시 단 1회만 로드 (setupCanvas가 stable이므로 재실행 없음)
   useEffect(() => {
     fetch('/data/world.geojson')
       .then((r) => r.json())
@@ -138,9 +152,11 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
       })
   }, [setupCanvas])
 
+  // threatData 또는 hours가 바뀔 때 지도를 다시 그림
   useEffect(() => {
+    if (!geoDataRef.current) return
     drawMap(hoveredCodeRef.current)
-  }, [threatData, drawMap, hours])
+  }, [threatData, hours, drawMap])
 
   useEffect(() => {
     const observer = new ResizeObserver(() => setupCanvas())
@@ -148,6 +164,7 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     return () => observer.disconnect()
   }, [setupCanvas])
 
+  // isPointInPath hit test: CTM(DPR scale)을 리셋해 CSS 픽셀 좌표로 정확히 판정
   const getFeatureAtPoint = useCallback((x: number, y: number): GeoFeature | null => {
     const canvas = canvasRef.current
     const geo = geoDataRef.current
@@ -157,13 +174,18 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     if (!ctx) return null
 
     const features = geo.features as GeoFeature[]
+    ctx.save()
+    ctx.resetTransform()
+    let result: GeoFeature | null = null
     for (let i = 0; i < features.length; i++) {
       const path2D = pathCacheRef.current.get(i)
       if (path2D && ctx.isPointInPath(path2D, x, y)) {
-        return features[i]
+        result = features[i]
+        break
       }
     }
-    return null
+    ctx.restore()
+    return result
   }, [])
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -184,7 +206,7 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     const feature = getFeatureAtPoint(x, y)
     if (feature) {
       const code = getCountryCode(feature.properties)
-      const threat = threatData[code]
+      const threat = threatDataRef.current[code]
       const hasData = !!threat
       const level = (threat?.threat_level ?? 0) as ThreatLevel
 
@@ -211,7 +233,7 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
       setTooltip((prev) => ({ ...prev, visible: false }))
       canvas.style.cursor = 'default'
     }
-  }, [getFeatureAtPoint, threatData, drawMap])
+  }, [getFeatureAtPoint, drawMap])
 
   const handleMouseLeave = useCallback(() => {
     hoveredCodeRef.current = null
@@ -231,14 +253,14 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     const feature = getFeatureAtPoint(x, y)
     if (feature) {
       const code = getCountryCode(feature.properties)
-      const hasData = !!threatData[code]
+      const hasData = !!threatDataRef.current[code]
       if (code && hasData) {
         selectCountry(code, String(feature.properties.name || code), e.clientX, e.clientY)
       }
     } else {
       closePanel()
     }
-  }, [getFeatureAtPoint, threatData, selectCountry, closePanel])
+  }, [getFeatureAtPoint, selectCountry, closePanel])
 
   return (
     <div ref={containerRef} className="w-full h-full relative bg-black">

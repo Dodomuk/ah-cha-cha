@@ -22,12 +22,15 @@ RSS 피드에서 수집한 보안 뉴스 제목을 Claude Haiku API로 처리하
 
 ## 2. 데이터 수집 출처 (RSS)
 
-| 피드명 | 도메인 |
-|--------|--------|
-| The Hacker News | thehackernews.com |
-| BleepingComputer | bleepingcomputer.com |
-| Krebs on Security | krebsonsecurity.com |
-| Dark Reading | darkreading.com |
+| 피드명 | 도메인 | 비고 |
+|--------|--------|------|
+| The Hacker News | thehackernews.com | 국제 |
+| BleepingComputer | bleepingcomputer.com | 국제 |
+| Krebs on Security | krebsonsecurity.com | 국제 |
+| Dark Reading | darkreading.com | 국제 |
+| AhnLab ASEC | asec.ahnlab.com | 국내 |
+| 보안뉴스 | boannews.com | 국내 |
+| 데일리시큐 | dailysecu.com | 국내 |
 
 ---
 
@@ -124,6 +127,7 @@ country_codes에는 사건과 직접 관련된 국가만 ISO 3166-1 alpha-2 코�
 | AI 요약 실행 | `TEST_MODE=false` 시 수집 직후 자동 실행 |
 | TEST_MODE | 수집만 자동 실행, 요약은 `POST /api/internal/summarize` 수동 트리거 |
 | 동시 처리 수 | 3건 (`asyncio.Semaphore(3)`) — 429 방지 |
+| RSS 수집 한도 | 최대 100건/회 |
 | 처리 배치 크기 | 최대 100건/회 |
 | 사용량 로그 | `backend/logs/api_usage.log` (JSON Lines) |
 

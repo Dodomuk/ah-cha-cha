@@ -48,10 +48,11 @@ CREATE INDEX idx_news_threat_level  ON news_articles (threat_level);
 
 ---
 
-## 3. `country_threat_levels`
+## 3. `country_threat_levels` (미사용)
 
-각 갱신 사이클(2시간)마다 국가별 최고 위협 레벨을 집계해서 저장.
-프론트엔드 지도 렌더링 시 이 테이블을 기준으로 색칠.
+> **현재 구현에서 이 테이블은 사용하지 않는다.**
+> `GET /api/countries?hours=N` 요청 시 `news_articles`에서 직접 집계하므로 별도 캐시 테이블 불필요.
+> 아래 스키마는 향후 캐싱 최적화 시 참고용으로만 보존.
 
 ```sql
 CREATE TABLE country_threat_levels (
@@ -63,9 +64,6 @@ CREATE TABLE country_threat_levels (
     snapshot_at     TIMESTAMPTZ NOT NULL,           -- 집계 기준 시각 (갱신 사이클)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_ctl_country_snapshot ON country_threat_levels (country_code, snapshot_at DESC);
-CREATE INDEX idx_ctl_snapshot_at      ON country_threat_levels (snapshot_at DESC);
 ```
 
 ---
