@@ -11,7 +11,6 @@ import MapTooltip from './MapTooltip'
 interface WorldMapProps {
   threatData: Record<string, CountryThreat>
   hours: number
-  isFetching: boolean
 }
 
 interface GeoFeature {
@@ -25,7 +24,7 @@ function getCountryCode(props: Record<string, unknown>): string {
   return String(code).toUpperCase()
 }
 
-export default function WorldMap({ threatData, hours, isFetching }: WorldMapProps) {
+export default function WorldMap({ threatData, hours }: WorldMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const geoDataRef = useRef<FeatureCollection | null>(null)
@@ -149,13 +148,13 @@ export default function WorldMap({ threatData, hours, isFetching }: WorldMapProp
       })
   }, [setupCanvas])
 
-  // threatData·hours·isFetching이 바뀔 때 지도를 다시 그림
-  // isFetching이 false로 바뀌는 순간을 추적해 structural sharing으로 ref가 유지되는 경우도 보완
+  // threatData·hours가 바뀔 때 지도를 다시 그림
+  // key={hours}로 리마운트되므로 hours 변경 시 항상 fresh 상태에서 실행
   useEffect(() => {
     threatDataRef.current = threatData
-    if (!geoDataRef.current || isFetching) return
+    if (!geoDataRef.current) return
     drawMap(hoveredCodeRef.current)
-  }, [threatData, hours, isFetching, drawMap])
+  }, [threatData, hours, drawMap])
 
   useEffect(() => {
     const observer = new ResizeObserver(() => setupCanvas())

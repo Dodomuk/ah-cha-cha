@@ -14,18 +14,16 @@ export default function HomePage() {
   const hours = useAppStore((s) => s.hours)
   const { data, isFetching } = useCountries(hours)
 
-  // keepPreviousData: hours 변경 중에도 이전 데이터 유지, isFetching으로 전환 감지
-  const isTransitioning = isFetching && !!data
   const threatData = data?.countries ?? {}
-  const isInitialLoad = !data && isFetching
+  // hours가 바뀌면 데이터가 없는 상태 → 로딩. 데이터 있으면 지도 표시
+  const isLoading = !data
 
   return (
     <div className="flex flex-col h-full w-full" style={{ background: '#000000' }}>
       <Header snapshotAt={data?.snapshot_at} />
 
       <div className="flex-1 relative overflow-hidden">
-        {/* 초기 로딩 전에는 WorldMap 숨김 */}
-        {isInitialLoad ? (
+        {isLoading ? (
           <div className="flex items-center justify-center w-full h-full">
             <div
               className="text-sm font-mono"
@@ -35,11 +33,12 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <WorldMap threatData={threatData} hours={hours} isFetching={isFetching} />
+          // key={hours}로 hours 변경 시 WorldMap을 리마운트 → 새 데이터로 확실히 갱신
+          <WorldMap key={hours} threatData={threatData} hours={hours} />
         )}
 
-        {/* 날짜 전환 중 오버레이 */}
-        {isTransitioning && !isInitialLoad && (
+        {/* 날짜 전환 중 오버레이 (데이터 있을 때 fetch 중인 경우) */}
+        {isFetching && !isLoading && (
           <div
             style={{
               position: 'absolute',
@@ -68,7 +67,6 @@ export default function HomePage() {
                 boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
               }}
             >
-              {/* 스피너 */}
               <svg
                 width="16" height="16" viewBox="0 0 24 24"
                 fill="none" stroke="#00B4D8" strokeWidth="2.5" strokeLinecap="round"
@@ -76,11 +74,7 @@ export default function HomePage() {
               >
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
               </svg>
-              <span style={{
-                color: '#00B4D8',
-                fontFamily: 'monospace',
-                fontSize: 13,
-              }}>
+              <span style={{ color: '#00B4D8', fontFamily: 'monospace', fontSize: 13 }}>
                 지도 갱신 중...
               </span>
             </div>
