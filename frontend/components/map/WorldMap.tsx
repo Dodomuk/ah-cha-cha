@@ -85,7 +85,7 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
         ctx.shadowBlur = isHovered ? config.shadowBlur * 2 : config.shadowBlur
         ctx.shadowColor = config.glow
       }
-      ctx.fillStyle = isHovered && !hasData ? '#181818' : config.fill
+      ctx.fillStyle = isHovered && !hasData ? '#1a2f3d' : config.fill
       ctx.fill(path2D)
       ctx.restore()
 
@@ -101,8 +101,8 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
         ctx.strokeStyle = THREAT_STROKE[level]
         ctx.lineWidth = config.strokeWidth / (window.devicePixelRatio || 1)
       } else {
-        ctx.strokeStyle = '#1e2a2a'
-        ctx.lineWidth = 0.4 / (window.devicePixelRatio || 1)
+        ctx.strokeStyle = '#1e3d52'
+        ctx.lineWidth = 0.6 / (window.devicePixelRatio || 1)
       }
       ctx.stroke(path2D)
       ctx.restore()
