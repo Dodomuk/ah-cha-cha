@@ -2,6 +2,7 @@
 
 import { NewsArticle } from '@/types'
 import { THREAT_STROKE } from '@/lib/threatColors'
+import { useLangStore } from '@/lib/langStore'
 
 interface Props {
   article: NewsArticle
@@ -123,6 +124,7 @@ function AnimatedSection({ icon, label, text, color, startDelay, isLast }: Secti
 
 export default function NewsCard({ article, cardIndex = 0 }: Props) {
   const color = THREAT_STROKE[article.threat_level]
+  const t = useLangStore((s) => s.t)
 
   // 카드 인덱스에 따라 전체 타임라인 오프셋
   const base = Math.min(cardIndex, 2) * 180
@@ -171,7 +173,7 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
       {article.summary_what && (
         <AnimatedSection
           icon="◈"
-          label="무슨 일"
+          label={t.whatLabel}
           text={article.summary_what}
           color={color}
           startDelay={titleEndDelay + 80}
@@ -182,7 +184,7 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
       {article.summary_impact && (
         <AnimatedSection
           icon="◉"
-          label="영향"
+          label={t.impactLabel}
           text={article.summary_impact}
           color={color}
           startDelay={whatEndDelay + 80}
@@ -212,7 +214,7 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
             className="text-[11px] font-mono hover:underline"
             style={{ color }}
           >
-            원문 보기 →
+            {t.viewSource}
           </a>
         </div>
       </div>

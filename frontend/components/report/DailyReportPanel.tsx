@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchLatestNews } from '@/lib/api'
 import { NewsArticle } from '@/types'
+import { useLangStore } from '@/lib/langStore'
+import type { Translations } from '@/lib/i18n'
 
 const LEVEL_COLOR: Record<number, string> = {
   4: '#FF2D2D',
@@ -19,15 +21,15 @@ const LEVEL_LABEL: Record<number, string> = {
   1: 'Low',
 }
 
-function generateReportText(articles: NewsArticle[]): string {
-  const today = new Date().toLocaleDateString('ko-KR', {
+function generateReportText(articles: NewsArticle[], t: Translations): string {
+  const today = new Date().toLocaleDateString(t.dateLocale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
   const lines = [
-    '아차차 (Ah-Cha-Cha) 일일 보안 리포트',
-    `생성일: ${today}  |  총 ${articles.length}건`,
+    t.reportHeader,
+    t.reportDateLine(today, articles.length),
     '='.repeat(52),
     '',
   ]
@@ -37,16 +39,16 @@ function generateReportText(articles: NewsArticle[]): string {
     lines.push(`[LV.${a.threat_level} ${label}] ${a.summary_title ?? ''}`)
     lines.push('')
     if (a.summary_what) {
-      lines.push('▸ 사건 개요')
+      lines.push(t.reportOverview)
       lines.push(a.summary_what)
       lines.push('')
     }
     if (a.summary_impact) {
-      lines.push('▸ 피해/영향')
+      lines.push(t.reportImpact)
       lines.push(a.summary_impact)
       lines.push('')
     }
-    lines.push(`▸ 출처: ${a.url}`)
+    lines.push(`${t.reportSource} ${a.url}`)
     lines.push('-'.repeat(52))
     lines.push('')
   }
@@ -65,9 +67,10 @@ export default function DailyReportPanel() {
   })
 
   const articles = data?.articles ?? []
+  const t = useLangStore((s) => s.t)
 
   const handleDownload = () => {
-    const text = generateReportText(articles)
+    const text = generateReportText(articles, t)
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -168,7 +171,7 @@ export default function DailyReportPanel() {
                   fontFamily: 'monospace',
                   letterSpacing: '0.04em',
                 }}>
-                  일일 보안 리포트
+                  {t.dailyReport}
                 </div>
                 <div style={{
                   color: 'rgba(255,255,255,0.35)',
@@ -176,7 +179,7 @@ export default function DailyReportPanel() {
                   marginTop: 3,
                   fontFamily: 'monospace',
                 }}>
-                  {new Date().toLocaleDateString('ko-KR')} &nbsp;·&nbsp; {articles.length}건
+                  {t.dailyReportDate(new Date().toLocaleDateString(t.dateLocale), articles.length)}
                 </div>
               </div>
 
@@ -244,7 +247,7 @@ export default function DailyReportPanel() {
                   fontFamily: 'monospace',
                   fontSize: 12,
                 }}>
-                  로딩 중...
+                  {t.reportLoading}
                 </div>
               ) : articles.length === 0 ? (
                 <div style={{
@@ -254,7 +257,7 @@ export default function DailyReportPanel() {
                   fontFamily: 'monospace',
                   fontSize: 12,
                 }}>
-                  오늘 수집된 보안 기사가 없습니다
+                  {t.noArticles}
                 </div>
               ) : (
                 articles.map((article, i) => {
@@ -303,7 +306,7 @@ export default function DailyReportPanel() {
                             marginBottom: 4,
                             letterSpacing: '0.06em',
                           }}>
-                            사건 개요
+                            {t.overviewLabel}
                           </div>
                           <div style={{
                             color: 'rgba(255,255,255,0.6)',
@@ -325,7 +328,7 @@ export default function DailyReportPanel() {
                             marginBottom: 4,
                             letterSpacing: '0.06em',
                           }}>
-                            피해/영향
+                            {t.damagesLabel}
                           </div>
                           <div style={{
                             color: 'rgba(255,255,255,0.6)',
@@ -358,7 +361,7 @@ export default function DailyReportPanel() {
                           <polyline points="15 3 21 3 21 9" />
                           <line x1="10" y1="14" x2="21" y2="3" />
                         </svg>
-                        원문 보기
+                        {t.viewSourceLink}
                       </a>
                     </div>
                   )

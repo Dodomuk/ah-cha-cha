@@ -1,0 +1,129 @@
+export type Lang = 'ko' | 'en'
+
+export interface Translations {
+  // Header
+  title: string
+  subtitle: string
+  lastUpdated: string
+  headerLoading: string
+  // Page
+  loadingMap: string
+  updatingMap: string
+  // StatsBar
+  stats7d: string
+  statsToday: string
+  statsUnit: string
+  levelCritical: string
+  levelHigh: string
+  levelMedium: string
+  levelLow: string
+  // CountryPanel
+  securityIssues: (n: number) => string
+  noIssues: string
+  panelLoading: string
+  // NewsCard
+  whatLabel: string
+  impactLabel: string
+  viewSource: string
+  // DailyReportPanel
+  dailyReport: string
+  dailyReportDate: (date: string, count: number) => string
+  noArticles: string
+  reportLoading: string
+  overviewLabel: string
+  damagesLabel: string
+  viewSourceLink: string
+  // Report download text
+  reportHeader: string
+  reportDateLine: (date: string, count: number) => string
+  reportOverview: string
+  reportImpact: string
+  reportSource: string
+  // Locale
+  dateLocale: string
+}
+
+export const translations: Record<Lang, Translations> = {
+  ko: {
+    title: '아차차',
+    subtitle: 'SECURITY INTELLIGENCE',
+    lastUpdated: '마지막 업데이트:',
+    headerLoading: '로딩 중...',
+
+    loadingMap: '보안 위협 데이터 로딩 중...',
+    updatingMap: '지도 갱신 중...',
+
+    stats7d: '7일 수집',
+    statsToday: '오늘 탐지',
+    statsUnit: '건',
+    levelCritical: '위험',
+    levelHigh: '경고',
+    levelMedium: '주의',
+    levelLow: '낮음',
+
+    securityIssues: (n) => `보안 이슈 ${n}건`,
+    noIssues: '해당 기간 내 보안 이슈 없음',
+    panelLoading: '로딩 중...',
+
+    whatLabel: '무슨 일',
+    impactLabel: '영향',
+    viewSource: '원문 보기 →',
+
+    dailyReport: '일일 보안 리포트',
+    dailyReportDate: (date, count) => `${date} · ${count}건`,
+    noArticles: '오늘 수집된 보안 기사가 없습니다',
+    reportLoading: '로딩 중...',
+    overviewLabel: '사건 개요',
+    damagesLabel: '피해/영향',
+    viewSourceLink: '원문 보기',
+
+    reportHeader: '아차차 (Ah-Cha-Cha) 일일 보안 리포트',
+    reportDateLine: (date, count) => `생성일: ${date}  |  총 ${count}건`,
+    reportOverview: '▸ 사건 개요',
+    reportImpact: '▸ 피해/영향',
+    reportSource: '▸ 출처:',
+
+    dateLocale: 'ko-KR',
+  },
+  en: {
+    title: 'Ah-Cha-Cha',
+    subtitle: 'SECURITY INTELLIGENCE',
+    lastUpdated: 'Last updated:',
+    headerLoading: 'Loading...',
+
+    loadingMap: 'Loading threat data...',
+    updatingMap: 'Updating map...',
+
+    stats7d: '7-day',
+    statsToday: 'Today',
+    statsUnit: '',
+    levelCritical: 'Critical',
+    levelHigh: 'High',
+    levelMedium: 'Medium',
+    levelLow: 'Low',
+
+    securityIssues: (n) => `${n} issue${n !== 1 ? 's' : ''}`,
+    noIssues: 'No security issues in this period',
+    panelLoading: 'Loading...',
+
+    whatLabel: 'What',
+    impactLabel: 'Impact',
+    viewSource: 'View source →',
+
+    dailyReport: 'Daily Security Report',
+    dailyReportDate: (date, count) => `${date} · ${count} items`,
+    noArticles: 'No security articles collected today',
+    reportLoading: 'Loading...',
+    overviewLabel: 'Overview',
+    damagesLabel: 'Impact',
+    viewSourceLink: 'View source',
+
+    reportHeader: 'Ah-Cha-Cha Daily Security Report',
+    reportDateLine: (date, count) => `Generated: ${date}  |  Total ${count} items`,
+    reportOverview: '▸ Overview',
+    reportImpact: '▸ Impact',
+    reportSource: '▸ Source:',
+
+    dateLocale: 'en-US',
+  },
+}

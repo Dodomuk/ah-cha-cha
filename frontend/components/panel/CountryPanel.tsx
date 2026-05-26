@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useCountryNews } from '@/hooks/useCountryNews'
 import { THREAT_STROKE, THREAT_CONFIG, THREAT_LABEL } from '@/lib/threatColors'
+import { useLangStore } from '@/lib/langStore'
 import NewsCard from './NewsCard'
 
 const POPUP_W = 520
@@ -36,6 +37,7 @@ function getFlagEmoji(code: string): string {
 export default function CountryPanel() {
   const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel, dateRange } = useAppStore()
   const { data, isLoading } = useCountryNews(selectedCountryCode, dateRange.start, dateRange.end)
+  const t = useLangStore((s) => s.t)
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -115,7 +117,7 @@ export default function CountryPanel() {
           {data && data.articles.length > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                보안 이슈 {data.articles.length}건
+                {t.securityIssues(data.articles.length)}
               </span>
             </div>
           )}
@@ -145,7 +147,7 @@ export default function CountryPanel() {
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: '12px 20px' }}>
         {isLoading && (
           <div className="flex items-center justify-center h-32 font-mono text-sm" style={{ color: 'rgba(255,255,255,0.25)' }}>
-            <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>로딩 중...</span>
+            <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>{t.panelLoading}</span>
           </div>
         )}
 
@@ -153,7 +155,7 @@ export default function CountryPanel() {
           <div className="flex flex-col items-center justify-center h-32 gap-3">
             <div style={{ fontSize: 28, opacity: 0.3 }}>🛡️</div>
             <span className="text-[12px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
-              해당 기간 내 보안 이슈 없음
+              {t.noIssues}
             </span>
           </div>
         )}

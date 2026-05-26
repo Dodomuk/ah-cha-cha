@@ -1,13 +1,7 @@
 'use client'
 
 import { useStats } from '@/hooks/useStats'
-
-const LEVELS = [
-  { key: '4', label: '위험', color: '#FF2D2D' },
-  { key: '3', label: '경고', color: '#FF8C00' },
-  { key: '2', label: '주의', color: '#FFD700' },
-  { key: '1', label: '낮음', color: '#39FF14' },
-]
+import { useLangStore } from '@/lib/langStore'
 
 function HDivider() {
   return <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', marginInline: -2 }} />
@@ -15,6 +9,14 @@ function HDivider() {
 
 export default function StatsBar() {
   const { data } = useStats()
+  const t = useLangStore((s) => s.t)
+
+  const LEVELS = [
+    { key: '4', label: t.levelCritical, color: '#FF2D2D' },
+    { key: '3', label: t.levelHigh,     color: '#FF8C00' },
+    { key: '2', label: t.levelMedium,   color: '#FFD700' },
+    { key: '1', label: t.levelLow,      color: '#39FF14' },
+  ]
 
   return (
     <div
@@ -40,13 +42,13 @@ export default function StatsBar() {
       {/* 7일 수집 */}
       <div style={{ padding: '10px 12px 9px' }}>
         <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.28)', marginBottom: 3, letterSpacing: 0.4 }}>
-          7일 수집
+          {t.stats7d}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
           <span style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: 700, color: '#00B4D8', lineHeight: 1, letterSpacing: -1 }}>
             {data ? data.total_7d.toLocaleString() : '—'}
           </span>
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(0,180,216,0.45)' }}>건</span>
+          {t.statsUnit && <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(0,180,216,0.45)' }}>{t.statsUnit}</span>}
         </div>
       </div>
 
@@ -55,13 +57,13 @@ export default function StatsBar() {
       {/* 오늘 탐지 */}
       <div style={{ padding: '9px 12px 10px' }}>
         <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.28)', marginBottom: 3, letterSpacing: 0.4 }}>
-          오늘 탐지
+          {t.statsToday}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
           <span style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: 700, color: '#00E5FF', lineHeight: 1, letterSpacing: -1 }}>
             {data ? data.today.toLocaleString() : '—'}
           </span>
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(0,229,255,0.45)' }}>건</span>
+          {t.statsUnit && <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(0,229,255,0.45)' }}>{t.statsUnit}</span>}
         </div>
       </div>
 
