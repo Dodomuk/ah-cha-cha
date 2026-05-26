@@ -204,7 +204,7 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
       >
         <span className="text-[11px] text-[#4A7A8A]">{article.source_domain}</span>
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-[#4A7A8A]">{timeAgo(article.collected_at)}</span>
+          <span className="text-[11px] text-[#4A7A8A]">{timeAgo(article.published_at ?? article.collected_at)}</span>
           <a
             href={article.url}
             target="_blank"

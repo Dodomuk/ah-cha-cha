@@ -10,7 +10,7 @@ import MapTooltip from './MapTooltip'
 
 interface WorldMapProps {
   threatData: Record<string, CountryThreat>
-  hours: number
+  dateKey: string
 }
 
 interface GeoFeature {
@@ -24,7 +24,7 @@ function getCountryCode(props: Record<string, unknown>): string {
   return String(code).toUpperCase()
 }
 
-export default function WorldMap({ threatData, hours }: WorldMapProps) {
+export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const geoDataRef = useRef<FeatureCollection | null>(null)
@@ -148,13 +148,12 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
       })
   }, [setupCanvas])
 
-  // threatData·hours가 바뀔 때 지도를 다시 그림
-  // key={hours}로 리마운트되므로 hours 변경 시 항상 fresh 상태에서 실행
+  // threatData·dateKey가 바뀔 때 지도를 다시 그림
   useEffect(() => {
     threatDataRef.current = threatData
     if (!geoDataRef.current) return
     drawMap(hoveredCodeRef.current)
-  }, [threatData, hours, drawMap])
+  }, [threatData, dateKey, drawMap])
 
   useEffect(() => {
     const observer = new ResizeObserver(() => setupCanvas())

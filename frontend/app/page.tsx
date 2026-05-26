@@ -4,19 +4,19 @@ import dynamic from 'next/dynamic'
 import Header from '@/components/layout/Header'
 import CountryPanel from '@/components/panel/CountryPanel'
 import DailyReportPanel from '@/components/report/DailyReportPanel'
-import DateRangeFilter from '@/components/map/DateRangeFilter'
+import StatsBar from '@/components/map/StatsBar'
 import { useCountries } from '@/hooks/useCountries'
 import { useAppStore } from '@/lib/store'
 
 const WorldMap = dynamic(() => import('@/components/map/WorldMap'), { ssr: false })
 
 export default function HomePage() {
-  const hours = useAppStore((s) => s.hours)
-  const { data, isFetching } = useCountries(hours)
+  const dateRange = useAppStore((s) => s.dateRange)
+  const { data, isFetching } = useCountries(dateRange.start, dateRange.end)
 
   const threatData = data?.countries ?? {}
-  // hours가 바뀌면 데이터가 없는 상태 → 로딩. 데이터 있으면 지도 표시
   const isLoading = !data
+  const dateKey = `${dateRange.start}_${dateRange.end}`
 
   return (
     <div className="flex flex-col h-full w-full" style={{ background: '#000000' }}>
@@ -33,11 +33,9 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          // key={hours}로 hours 변경 시 WorldMap을 리마운트 → 새 데이터로 확실히 갱신
-          <WorldMap key={hours} threatData={threatData} hours={hours} />
+          <WorldMap key={dateKey} threatData={threatData} dateKey={dateKey} />
         )}
 
-        {/* 날짜 전환 중 오버레이 (데이터 있을 때 fetch 중인 경우) */}
         {isFetching && !isLoading && (
           <div
             style={{
@@ -81,7 +79,7 @@ export default function HomePage() {
           </div>
         )}
 
-        <DateRangeFilter />
+        <StatsBar />
         <CountryPanel />
         <DailyReportPanel />
       </div>

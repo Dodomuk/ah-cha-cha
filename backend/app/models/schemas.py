@@ -35,3 +35,9 @@ class CountryNewsResponse(BaseModel):
 
 class LatestNewsResponse(BaseModel):
     articles: list[NewsArticleOut]
+
+
+class StatsResponse(BaseModel):
+    total_7d: int
+    today: int
+    by_level: dict[str, int]  # "1"~"4" → 건수

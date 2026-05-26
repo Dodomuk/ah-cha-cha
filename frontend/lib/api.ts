@@ -6,22 +6,34 @@ const client = axios.create({
   timeout: 10000,
 })
 
-export async function fetchCountries(hours = 168): Promise<CountriesResponse> {
+export async function fetchCountries(start: string, end: string): Promise<CountriesResponse> {
   const { data } = await client.get<CountriesResponse>('/api/countries', {
-    params: { hours },
+    params: { start, end },
   })
   return data
 }
 
 export async function fetchCountryNews(
   code: string,
-  hours = 168,
+  start: string,
+  end: string,
   limit = 20
 ): Promise<CountryNewsResponse> {
   const { data } = await client.get<CountryNewsResponse>(
     `/api/countries/${code}/news`,
-    { params: { hours, limit } }
+    { params: { start, end, limit } }
   )
+  return data
+}
+
+export interface StatsData {
+  total_7d: number
+  today: number
+  by_level: Record<string, number>
+}
+
+export async function fetchStats(): Promise<StatsData> {
+  const { data } = await client.get<StatsData>('/api/stats')
   return data
 }
 

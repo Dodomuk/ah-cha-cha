@@ -5,15 +5,28 @@ interface ClickPosition {
   y: number
 }
 
+export interface DateRange {
+  start: string  // YYYY-MM-DD KST
+  end: string    // YYYY-MM-DD KST
+}
+
+function todayKST(): string {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
+}
+
+function defaultStart(): string {
+  return new Date(Date.now() + 9 * 3600 * 1000 - 6 * 86400 * 1000).toISOString().slice(0, 10)
+}
+
 interface AppState {
   selectedCountryCode: string | null
   selectedCountryName: string | null
   isPanelOpen: boolean
   clickPosition: ClickPosition | null
-  hours: number
+  dateRange: DateRange
   selectCountry: (code: string, name: string, x: number, y: number) => void
   closePanel: () => void
-  setHours: (hours: number) => void
+  setDateRange: (range: DateRange) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -21,10 +34,10 @@ export const useAppStore = create<AppState>((set) => ({
   selectedCountryName: null,
   isPanelOpen: false,
   clickPosition: null,
-  hours: 168,
+  dateRange: { start: defaultStart(), end: todayKST() },
   selectCountry: (code, name, x, y) =>
     set({ selectedCountryCode: code, selectedCountryName: name, isPanelOpen: true, clickPosition: { x, y } }),
   closePanel: () =>
     set({ isPanelOpen: false, selectedCountryCode: null, selectedCountryName: null, clickPosition: null }),
-  setHours: (hours) => set({ hours }),
+  setDateRange: (dateRange) => set({ dateRange }),
 }))

@@ -34,8 +34,8 @@ function getFlagEmoji(code: string): string {
 }
 
 export default function CountryPanel() {
-  const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel, hours } = useAppStore()
-  const { data, isLoading } = useCountryNews(selectedCountryCode, hours)
+  const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel, dateRange } = useAppStore()
+  const { data, isLoading } = useCountryNews(selectedCountryCode, dateRange.start, dateRange.end)
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -153,7 +153,7 @@ export default function CountryPanel() {
           <div className="flex flex-col items-center justify-center h-32 gap-3">
             <div style={{ fontSize: 28, opacity: 0.3 }}>🛡️</div>
             <span className="text-[12px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
-              최근 7일 내 보안 이슈 없음
+              해당 기간 내 보안 이슈 없음
             </span>
           </div>
         )}

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
@@ -6,22 +7,53 @@ from app.models.database import get_db
 from app.models.news import NewsArticle, CountryThreatLevel
 from app.models.schemas import (
     CountriesResponse, CountryNewsResponse, LatestNewsResponse,
-    CountryThreatOut, NewsArticleOut,
+    CountryThreatOut, NewsArticleOut, StatsResponse,
 )
 from app.config import settings
 
 router = APIRouter()
 
+KST = timezone(timedelta(hours=9))
+
+
+def parse_date_range(start: Optional[str], end: Optional[str]):
+    """YYYY-MM-DD KST 문자열을 UTC datetime 범위로 변환한다. 최대 7일."""
+    today_kst = datetime.now(KST).date()
+
+    try:
+        end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else today_kst
+    except ValueError:
+        end_date = today_kst
+
+    try:
+        start_date = datetime.strptime(start, "%Y-%m-%d").date() if start else (end_date - timedelta(days=6))
+    except ValueError:
+        start_date = end_date - timedelta(days=6)
+
+    if start_date > end_date:
+        start_date = end_date
+    if (end_date - start_date).days > 6:
+        start_date = end_date - timedelta(days=6)
+
+    start_dt = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0, tzinfo=KST)
+    end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=KST)
+    return start_dt, end_dt
+
 
 @router.get("/countries", response_model=CountriesResponse)
-def get_countries(hours: int = 168, db: Session = Depends(get_db)):
-    hours = min(max(hours, 1), 168)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_countries(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    start_dt, end_dt = parse_date_range(start, end)
 
+    date_col = func.coalesce(NewsArticle.published_at, NewsArticle.collected_at)
     rows = db.execute(
         select(NewsArticle.country_codes, NewsArticle.threat_level)
         .where(
-            NewsArticle.collected_at >= cutoff,
+            date_col >= start_dt,
+            date_col <= end_dt,
             NewsArticle.threat_level > 0,
             NewsArticle.ai_processed.is_(True),
             NewsArticle.country_codes.isnot(None),
@@ -52,22 +84,25 @@ def get_countries(hours: int = 168, db: Session = Depends(get_db)):
 @router.get("/countries/{code}/news", response_model=CountryNewsResponse)
 def get_country_news(
     code: str,
-    hours: int = 168,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     limit: int = 20,
     db: Session = Depends(get_db),
 ):
     code = code.upper()
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=min(hours, 168))
+    start_dt, end_dt = parse_date_range(start, end)
     limit = min(limit, 50)
 
+    date_col = func.coalesce(NewsArticle.published_at, NewsArticle.collected_at)
     articles = db.execute(
         select(NewsArticle)
         .where(
             NewsArticle.country_codes.any(code),
-            NewsArticle.collected_at >= cutoff,
+            date_col >= start_dt,
+            date_col <= end_dt,
             NewsArticle.ai_processed.is_(True),
         )
-        .order_by(NewsArticle.threat_level.desc(), NewsArticle.collected_at.desc())
+        .order_by(NewsArticle.threat_level.desc(), date_col.desc())
         .limit(limit)
     ).scalars().all()
 
@@ -77,6 +112,42 @@ def get_country_news(
         country_code=code,
         threat_level=max_level,
         articles=[NewsArticleOut.model_validate(a) for a in articles],
+    )
+
+
+@router.get("/stats", response_model=StatsResponse)
+def get_stats(db: Session = Depends(get_db)):
+    date_col = func.coalesce(NewsArticle.published_at, NewsArticle.collected_at)
+    now_kst = datetime.now(KST)
+    today_start = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = now_kst.replace(hour=23, minute=59, second=59, microsecond=0)
+    week_start = today_start - timedelta(days=6)
+
+    today_count = db.execute(
+        select(func.count()).select_from(NewsArticle).where(
+            date_col >= today_start,
+            date_col <= today_end,
+            NewsArticle.threat_level > 0,
+            NewsArticle.ai_processed.is_(True),
+        )
+    ).scalar() or 0
+
+    level_rows = db.execute(
+        select(NewsArticle.threat_level, func.count()).where(
+            date_col >= week_start,
+            NewsArticle.threat_level > 0,
+            NewsArticle.ai_processed.is_(True),
+        ).group_by(NewsArticle.threat_level)
+    ).all()
+
+    by_level = {str(lvl): cnt for lvl, cnt in level_rows}
+    for lvl in ("1", "2", "3", "4"):
+        by_level.setdefault(lvl, 0)
+
+    return StatsResponse(
+        total_7d=sum(by_level.values()),
+        today=today_count,
+        by_level=by_level,
     )
 
 

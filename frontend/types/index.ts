@@ -18,7 +18,7 @@ export interface NewsArticle {
   threat_level: ThreatLevel
   url: string
   source_domain: string
-  published_at: string
+  published_at: string | null
   collected_at: string
 }
 
