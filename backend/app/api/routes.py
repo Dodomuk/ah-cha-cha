@@ -117,16 +117,14 @@ def get_country_news(
 
 @router.get("/stats", response_model=StatsResponse)
 def get_stats(db: Session = Depends(get_db)):
-    date_col = func.coalesce(NewsArticle.published_at, NewsArticle.collected_at)
+    # collected_at 기준 — Daily Report와 동일한 기준으로 통계 산출
     now_kst = datetime.now(KST)
     today_start = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = now_kst.replace(hour=23, minute=59, second=59, microsecond=0)
     week_start = today_start - timedelta(days=6)
 
     today_count = db.execute(
         select(func.count()).select_from(NewsArticle).where(
-            date_col >= today_start,
-            date_col <= today_end,
+            NewsArticle.collected_at >= today_start,
             NewsArticle.threat_level > 0,
             NewsArticle.ai_processed.is_(True),
         )
@@ -134,7 +132,7 @@ def get_stats(db: Session = Depends(get_db)):
 
     level_rows = db.execute(
         select(NewsArticle.threat_level, func.count()).where(
-            date_col >= week_start,
+            NewsArticle.collected_at >= week_start,
             NewsArticle.threat_level > 0,
             NewsArticle.ai_processed.is_(True),
         ).group_by(NewsArticle.threat_level)
