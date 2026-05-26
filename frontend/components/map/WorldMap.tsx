@@ -11,6 +11,7 @@ import MapTooltip from './MapTooltip'
 interface WorldMapProps {
   threatData: Record<string, CountryThreat>
   hours: number
+  isFetching: boolean
 }
 
 interface GeoFeature {
@@ -24,7 +25,7 @@ function getCountryCode(props: Record<string, unknown>): string {
   return String(code).toUpperCase()
 }
 
-export default function WorldMap({ threatData, hours }: WorldMapProps) {
+export default function WorldMap({ threatData, hours, isFetching }: WorldMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const geoDataRef = useRef<FeatureCollection | null>(null)
@@ -45,10 +46,6 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
     visible: false, x: 0, y: 0, countryName: '', threatLevel: 0,
   })
 
-  // threatData가 바뀌면 ref만 업데이트 (deps 체인 전파 없음)
-  useEffect(() => {
-    threatDataRef.current = threatData
-  }, [threatData])
 
   // drawMap은 deps 없이 stable — threatData는 ref에서 읽음
   const drawMap = useCallback((hoveredCode: string | null = null) => {
@@ -152,11 +149,13 @@ export default function WorldMap({ threatData, hours }: WorldMapProps) {
       })
   }, [setupCanvas])
 
-  // threatData 또는 hours가 바뀔 때 지도를 다시 그림
+  // threatData·hours·isFetching이 바뀔 때 지도를 다시 그림
+  // isFetching이 false로 바뀌는 순간을 추적해 structural sharing으로 ref가 유지되는 경우도 보완
   useEffect(() => {
-    if (!geoDataRef.current) return
+    threatDataRef.current = threatData
+    if (!geoDataRef.current || isFetching) return
     drawMap(hoveredCodeRef.current)
-  }, [threatData, hours, drawMap])
+  }, [threatData, hours, isFetching, drawMap])
 
   useEffect(() => {
     const observer = new ResizeObserver(() => setupCanvas())

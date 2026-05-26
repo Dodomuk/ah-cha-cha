@@ -35,7 +35,7 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <WorldMap threatData={threatData} hours={hours} />
+          <WorldMap threatData={threatData} hours={hours} isFetching={isFetching} />
         )}
 
         {/* 날짜 전환 중 오버레이 */}
