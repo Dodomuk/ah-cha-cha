@@ -13,6 +13,8 @@ class NewsArticleOut(BaseModel):
     source_domain: str | None
     published_at: datetime | None
     collected_at: datetime
+    attacker_codes: list[str] | None = None
+    victim_codes: list[str] | None = None
 
     model_config = {"from_attributes": True}
 
@@ -20,6 +22,8 @@ class NewsArticleOut(BaseModel):
 class CountryThreatOut(BaseModel):
     threat_level: int
     article_count: int
+    delta: int | None = None
+    role: str | None = None
 
 
 class CountriesResponse(BaseModel):
@@ -41,3 +45,17 @@ class StatsResponse(BaseModel):
     total_7d: int
     today: int
     by_level: dict[str, int]  # "1"~"4" → 건수
+
+
+class TrendPoint(BaseModel):
+    date: str
+    level: int
+
+
+class TrendResponse(BaseModel):
+    points: list[TrendPoint]
+
+
+class SearchResponse(BaseModel):
+    articles: list[NewsArticleOut]
+    query: str

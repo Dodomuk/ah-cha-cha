@@ -3,6 +3,8 @@ export type ThreatLevel = 0 | 1 | 2 | 3 | 4
 export interface CountryThreat {
   threat_level: ThreatLevel
   article_count: number
+  delta?: number | null
+  role?: 'attacker' | 'victim' | 'both' | null
 }
 
 export interface CountriesResponse {
@@ -20,6 +22,8 @@ export interface NewsArticle {
   source_domain: string
   published_at: string | null
   collected_at: string
+  attacker_codes?: string[] | null
+  victim_codes?: string[] | null
 }
 
 export interface CountryNewsResponse {
@@ -38,4 +42,20 @@ export interface TooltipState {
   y: number
   countryName: string
   threatLevel: ThreatLevel
+  delta?: number | null
+  role?: string | null
+}
+
+export interface TrendPoint {
+  date: string
+  level: number
+}
+
+export interface TrendResponse {
+  points: TrendPoint[]
+}
+
+export interface SearchResponse {
+  articles: NewsArticle[]
+  query: string
 }

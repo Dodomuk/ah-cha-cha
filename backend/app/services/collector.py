@@ -100,6 +100,8 @@ async def run_summarization_cycle(db: Session) -> dict:
             obj.summary_impact = data.get("summary_impact")
             obj.threat_level = int(data.get("threat_level", 0))
             obj.country_codes = data.get("country_codes") or []
+            obj.attacker_codes = data.get("attacker_codes") or []
+            obj.victim_codes = data.get("victim_codes") or []
             obj.ai_processed = True
             updated += 1
 

@@ -21,7 +21,9 @@ USER_PROMPT_TEMPLATE = """다음 보안 뉴스 기사를 분석하고 JSON으로
   "summary_what": "무슨 일이 있었는지 설명 (3~5문장, 한국어)",
   "summary_impact": "어떤 피해나 영향이 발생했는지 (2~3문장, 한국어)",
   "threat_level": 위협_레벨_숫자,
-  "country_codes": ["ISO_코드1", "ISO_코드2"]
+  "country_codes": ["ISO_코드1", "ISO_코드2"],
+  "attacker_codes": ["공격자_국가_ISO_코드"],
+  "victim_codes": ["피해자_국가_ISO_코드"]
 }}
 
 위협 레벨 기준:
@@ -31,8 +33,10 @@ USER_PROMPT_TEMPLATE = """다음 보안 뉴스 기사를 분석하고 JSON으로
 - 3: 금융기관/기업 침해, 대규모 데이터 유출
 - 4: 국가기반시설 공격, 사이버전, 대규모 랜섬웨어
 
-country_codes에는 사건과 직접 관련된 국가만 ISO 3166-1 alpha-2 코드로 포함하세요.
-국가를 특정할 수 없으면 빈 배열 []을 반환하세요."""
+country_codes: 사건과 직접 관련된 모든 국가 ISO 3166-1 alpha-2 코드.
+attacker_codes: 공격을 수행한 것으로 귀속된 국가만 (확인된 경우). 불명이면 [].
+victim_codes: 공격의 피해를 입은 국가들. 불명이면 [].
+국가를 특정할 수 없으면 각 배열에 빈 배열 []을 반환하세요."""
 
 
 async def summarize_article(title: str) -> tuple[dict | None, dict]:

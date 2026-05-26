@@ -6,6 +6,8 @@ import { useCountryNews } from '@/hooks/useCountryNews'
 import { THREAT_STROKE, THREAT_CONFIG, THREAT_LABEL } from '@/lib/threatColors'
 import { useLangStore } from '@/lib/langStore'
 import NewsCard from './NewsCard'
+import TrendChart from './TrendChart'
+import { useCountryTrend } from '@/hooks/useCountryTrend'
 
 const POPUP_W = 520
 const POPUP_MAX_H = 580
@@ -37,6 +39,7 @@ function getFlagEmoji(code: string): string {
 export default function CountryPanel() {
   const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel, dateRange } = useAppStore()
   const { data, isLoading } = useCountryNews(selectedCountryCode, dateRange.start, dateRange.end)
+  const { data: trendData } = useCountryTrend(selectedCountryCode)
   const t = useLangStore((s) => s.t)
   const [visible, setVisible] = useState(false)
 
@@ -142,6 +145,26 @@ export default function CountryPanel() {
 
       {/* 구분선 */}
       <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginInline: 20, flexShrink: 0 }} />
+
+      {/* 7일 트렌드 차트 */}
+      {trendData && trendData.points.some((p) => p.level > 0) && (
+        <div style={{
+          padding: '12px 20px 10px',
+          flexShrink: 0,
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+        }}>
+          <div style={{
+            color: 'rgba(255,255,255,0.3)',
+            fontSize: 10,
+            fontFamily: 'monospace',
+            letterSpacing: '0.06em',
+            marginBottom: 8,
+          }}>
+            {t.trendLabel}
+          </div>
+          <TrendChart points={trendData.points} />
+        </div>
+      )}
 
       {/* 뉴스 목록 */}
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: '12px 20px' }}>

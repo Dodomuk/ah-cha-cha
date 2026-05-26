@@ -5,6 +5,7 @@ import Header from '@/components/layout/Header';
 import CountryPanel from '@/components/panel/CountryPanel';
 import DailyReportPanel from '@/components/report/DailyReportPanel';
 import StatsBar from '@/components/map/StatsBar';
+import SearchModal from '@/components/search/SearchModal';
 import { useCountries } from '@/hooks/useCountries';
 import { useAppStore } from '@/lib/store';
 import { useLangStore } from '@/lib/langStore';
@@ -103,6 +104,7 @@ export default function HomePage() {
         <StatsBar />
         <CountryPanel />
         <DailyReportPanel />
+        <SearchModal />
       </div>
     </div>
   );

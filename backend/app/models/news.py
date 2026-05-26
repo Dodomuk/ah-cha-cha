@@ -25,6 +25,8 @@ class NewsArticle(Base):
     summary_impact: Mapped[str | None] = mapped_column(Text)
     threat_level: Mapped[int] = mapped_column(SmallInteger, default=0)
     country_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)))
+    attacker_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)), nullable=True)
+    victim_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)), nullable=True)
 
     ai_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(

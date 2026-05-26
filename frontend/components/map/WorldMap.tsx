@@ -81,9 +81,13 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
       }
 
       ctx.save()
+      const role = threat?.role
+      const isAttacker = role === 'attacker' || role === 'both'
+      const strokeColor = isAttacker && hasData ? '#CC00FF' : THREAT_STROKE[level]
+
       if (hasData) {
         ctx.shadowBlur = isHovered ? config.shadowBlur * 2 : config.shadowBlur
-        ctx.shadowColor = config.glow
+        ctx.shadowColor = isAttacker ? '#CC00FF80' : config.glow
       }
       ctx.fillStyle = isHovered && !hasData ? '#1a2f3d' : config.fill
       ctx.fill(path2D)
@@ -92,13 +96,13 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
       ctx.save()
       if (hasData && isHovered) {
         ctx.shadowBlur = 12
-        ctx.shadowColor = THREAT_STROKE[level]
-        ctx.strokeStyle = THREAT_STROKE[level]
+        ctx.shadowColor = strokeColor
+        ctx.strokeStyle = strokeColor
         ctx.lineWidth = (config.strokeWidth / (window.devicePixelRatio || 1)) * 1.8
       } else if (hasData) {
         ctx.shadowBlur = 4
-        ctx.shadowColor = THREAT_STROKE[level]
-        ctx.strokeStyle = THREAT_STROKE[level]
+        ctx.shadowColor = strokeColor
+        ctx.strokeStyle = strokeColor
         ctx.lineWidth = config.strokeWidth / (window.devicePixelRatio || 1)
       } else {
         ctx.strokeStyle = '#1e3d52'
@@ -219,6 +223,8 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
         y: e.clientY,
         countryName: String(feature.properties.name || code),
         threatLevel: level,
+        delta: threat?.delta ?? null,
+        role: threat?.role ?? null,
       })
       canvas.style.cursor = hasData ? 'pointer' : 'default'
     } else {

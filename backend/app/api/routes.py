@@ -2,12 +2,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from app.models.database import get_db
 from app.models.news import NewsArticle, CountryThreatLevel
 from app.models.schemas import (
     CountriesResponse, CountryNewsResponse, LatestNewsResponse,
     CountryThreatOut, NewsArticleOut, StatsResponse,
+    TrendResponse, TrendPoint, SearchResponse,
 )
 from app.config import settings
 
@@ -49,6 +50,8 @@ def get_countries(
     start_dt, end_dt = parse_date_range(start, end)
 
     date_col = func.coalesce(NewsArticle.published_at, NewsArticle.collected_at)
+
+    # Current period: threat levels per country
     rows = db.execute(
         select(NewsArticle.country_codes, NewsArticle.threat_level)
         .where(
@@ -70,8 +73,73 @@ def get_countries(
             country_max[code] = max(country_max.get(code, 0), level)
             country_count[code] = country_count.get(code, 0) + 1
 
+    # Previous period (shifted 1 day back) for delta computation
+    prev_start_dt = start_dt - timedelta(days=1)
+    prev_end_dt = end_dt - timedelta(days=1)
+    prev_rows = db.execute(
+        select(NewsArticle.country_codes, NewsArticle.threat_level)
+        .where(
+            date_col >= prev_start_dt,
+            date_col <= prev_end_dt,
+            NewsArticle.threat_level > 0,
+            NewsArticle.ai_processed.is_(True),
+            NewsArticle.country_codes.isnot(None),
+        )
+    ).all()
+    prev_max: dict[str, int] = {}
+    for codes, level in prev_rows:
+        for code in (codes or []):
+            code = code.upper()
+            if code:
+                prev_max[code] = max(prev_max.get(code, 0), level)
+
+    # Attacker / victim role computation
+    attacker_rows = db.execute(
+        select(NewsArticle.attacker_codes)
+        .where(
+            date_col >= start_dt,
+            date_col <= end_dt,
+            NewsArticle.ai_processed.is_(True),
+            NewsArticle.attacker_codes.isnot(None),
+        )
+    ).scalars().all()
+    victim_rows = db.execute(
+        select(NewsArticle.victim_codes)
+        .where(
+            date_col >= start_dt,
+            date_col <= end_dt,
+            NewsArticle.ai_processed.is_(True),
+            NewsArticle.victim_codes.isnot(None),
+        )
+    ).scalars().all()
+
+    attacker_set: set[str] = set()
+    victim_set: set[str] = set()
+    for codes in attacker_rows:
+        for code in (codes or []):
+            attacker_set.add(code.upper())
+    for codes in victim_rows:
+        for code in (codes or []):
+            victim_set.add(code.upper())
+
+    def get_role(code: str) -> str | None:
+        is_a = code in attacker_set
+        is_v = code in victim_set
+        if is_a and is_v:
+            return "both"
+        if is_a:
+            return "attacker"
+        if is_v:
+            return "victim"
+        return None
+
     countries: dict[str, CountryThreatOut] = {
-        code: CountryThreatOut(threat_level=level, article_count=country_count[code])
+        code: CountryThreatOut(
+            threat_level=level,
+            article_count=country_count[code],
+            delta=level - prev_max.get(code, 0),
+            role=get_role(code),
+        )
         for code, level in country_max.items()
     }
 
@@ -115,9 +183,70 @@ def get_country_news(
     )
 
 
+@router.get("/countries/{code}/trend", response_model=TrendResponse)
+def get_country_trend(code: str, db: Session = Depends(get_db)):
+    code = code.upper()
+    now_kst = datetime.now(KST)
+    week_start = (now_kst - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = now_kst.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    date_col = func.coalesce(NewsArticle.published_at, NewsArticle.collected_at)
+    rows = db.execute(
+        select(date_col.label("d"), NewsArticle.threat_level)
+        .where(
+            NewsArticle.country_codes.any(code),
+            date_col >= week_start,
+            date_col <= today_end,
+            NewsArticle.ai_processed.is_(True),
+        )
+    ).all()
+
+    day_max: dict[str, int] = {}
+    for date_val, level in rows:
+        day = date_val.astimezone(KST).strftime("%Y-%m-%d")
+        day_max[day] = max(day_max.get(day, 0), level)
+
+    points = []
+    for i in range(6, -1, -1):
+        d = (now_kst - timedelta(days=i)).strftime("%Y-%m-%d")
+        points.append(TrendPoint(date=d, level=day_max.get(d, 0)))
+
+    return TrendResponse(points=points)
+
+
+@router.get("/search", response_model=SearchResponse)
+def search_news(q: str = "", limit: int = 20, db: Session = Depends(get_db)):
+    limit = min(limit, 50)
+    q = q.strip()
+    if not q:
+        return SearchResponse(articles=[], query=q)
+
+    pattern = f"%{q}%"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    articles = db.execute(
+        select(NewsArticle)
+        .where(
+            NewsArticle.ai_processed.is_(True),
+            NewsArticle.collected_at >= cutoff,
+            or_(
+                NewsArticle.summary_title.ilike(pattern),
+                NewsArticle.summary_what.ilike(pattern),
+                NewsArticle.source_title.ilike(pattern),
+            ),
+        )
+        .order_by(NewsArticle.threat_level.desc(), NewsArticle.collected_at.desc())
+        .limit(limit)
+    ).scalars().all()
+
+    return SearchResponse(
+        articles=[NewsArticleOut.model_validate(a) for a in articles],
+        query=q,
+    )
+
+
 @router.get("/stats", response_model=StatsResponse)
 def get_stats(db: Session = Depends(get_db)):
-    # collected_at 기준 — Daily Report와 동일한 기준으로 통계 산출
     now_kst = datetime.now(KST)
     today_start = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=6)

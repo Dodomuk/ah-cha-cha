@@ -39,6 +39,13 @@ export interface Translations {
   reportOverview: string
   reportImpact: string
   reportSource: string
+  // TrendChart
+  trendLabel: string
+  // Search
+  searchTitle: string
+  searchPlaceholder: string
+  searchNoResults: string
+  searchTip: string
   // Locale
   dateLocale: string
 }
@@ -83,6 +90,13 @@ export const translations: Record<Lang, Translations> = {
     reportImpact: '▸ 피해/영향',
     reportSource: '▸ 출처:',
 
+    trendLabel: '7일 위협 추이',
+
+    searchTitle: '기사 검색',
+    searchPlaceholder: '키워드 검색...',
+    searchNoResults: '검색 결과가 없습니다',
+    searchTip: '2자 이상 입력하세요',
+
     dateLocale: 'ko-KR',
   },
   en: {
@@ -123,6 +137,13 @@ export const translations: Record<Lang, Translations> = {
     reportOverview: '▸ Overview',
     reportImpact: '▸ Impact',
     reportSource: '▸ Source:',
+
+    trendLabel: '7-day Trend',
+
+    searchTitle: 'Search Articles',
+    searchPlaceholder: 'Search keywords...',
+    searchNoResults: 'No results found',
+    searchTip: 'Type at least 2 characters',
 
     dateLocale: 'en-US',
   },
