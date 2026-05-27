@@ -69,14 +69,52 @@ function generateReportText(articles: NewsArticle[], t: Translations): string {
   return lines.join('\n')
 }
 
-function toKSTDateString(d: Date): string {
-  // Date → "YYYY-MM-DD" KST 기준
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+function todayKST(): string {
+  // 로컬 타임존과 무관하게 KST(UTC+9) 기준 오늘 날짜 반환
+  const now = new Date()
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   return kst.toISOString().slice(0, 10)
 }
 
-function todayKST(): string {
-  return toKSTDateString(new Date())
+function addDays(dateStr: string, delta: number): string {
+  // YYYY-MM-DD 문자열을 UTC 기반으로 n일 더하기 (타임존 무관)
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const utc = new Date(Date.UTC(y, m - 1, d + delta))
+  return [
+    utc.getUTCFullYear(),
+    String(utc.getUTCMonth() + 1).padStart(2, '0'),
+    String(utc.getUTCDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+/** 유사도: 의미 있는 단어(3자↑) 집합의 Jaccard 유사도 */
+function titleSimilarity(a: string, b: string): number {
+  const words = (s: string) =>
+    new Set(s.toLowerCase().replace(/[^\w\s가-힣]/g, '').split(/\s+/).filter(w => w.length >= 3))
+  const wa = words(a)
+  const wb = words(b)
+  const union = new Set([...wa, ...wb])
+  if (union.size === 0 || wa.size < 2 || wb.size < 2) return 0
+  return [...wa].filter(w => wb.has(w)).length / union.size
+}
+
+/** 유사 제목 기사를 그룹으로 묶기 (threshold: 0.4) */
+function groupArticles(articles: NewsArticle[]): NewsArticle[][] {
+  const groups: NewsArticle[][] = []
+  for (const article of articles) {
+    const title = article.summary_title ?? article.source_title ?? ''
+    let placed = false
+    for (const group of groups) {
+      const rep = group[0].summary_title ?? group[0].source_title ?? ''
+      if (titleSimilarity(title, rep) >= 0.4) {
+        group.push(article)
+        placed = true
+        break
+      }
+    }
+    if (!placed) groups.push([article])
+  }
+  return groups
 }
 
 export default function DailyReportPanel() {
@@ -87,10 +125,7 @@ export default function DailyReportPanel() {
   const isToday = selectedDate === todayKST()
 
   const goDay = (delta: number) => {
-    const d = new Date(selectedDate + 'T00:00:00+09:00')
-    d.setDate(d.getDate() + delta)
-    const next = toKSTDateString(d)
-    // 미래 이동 금지
+    const next = addDays(selectedDate, delta)
     if (next > todayKST()) return
     setSelectedDate(next)
     setSelectedCats(new Set())
@@ -100,7 +135,8 @@ export default function DailyReportPanel() {
     queryKey: ['latest-news', selectedDate],
     queryFn: () => fetchLatestNews(100, selectedDate),
     enabled: open,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,           // 날짜 변경 시 항상 서버에서 새로 조회
+    refetchOnMount: true,
   })
 
   const allArticles = data?.articles ?? []
@@ -123,6 +159,9 @@ export default function DailyReportPanel() {
       return next
     })
   }
+
+  // 그룹화: 카테고리 필터 적용 후 유사 기사 묶기
+  const groups = groupArticles(articles)
 
   const handleDownload = () => {
     const text = generateReportText(articles, t)
@@ -405,7 +444,7 @@ export default function DailyReportPanel() {
               })}
             </div>
 
-            {/* 기사 목록 */}
+            {/* 기사 목록 (그룹화) */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px' }}>
               {isLoading ? (
                 <div style={{
@@ -430,11 +469,14 @@ export default function DailyReportPanel() {
                     : t.noArticles}
                 </div>
               ) : (
-                articles.map((article, i) => {
+                groups.map((group, gi) => {
+                  const article = group[0]   // 대표 기사
                   const color = LEVEL_COLOR[article.threat_level] ?? '#555'
                   const cats = detectCategories(article)
+                  const isDupe = group.length > 1
+
                   return (
-                    <div key={String(article.id ?? i)} style={{
+                    <div key={String(article.id ?? gi)} style={{
                       marginBottom: 12,
                       padding: '14px 16px',
                       background: 'rgba(255,255,255,0.025)',
@@ -534,29 +576,65 @@ export default function DailyReportPanel() {
                         </div>
                       )}
 
-                      {/* 원문 링크 */}
-                      <a
-                        href={article.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          color: 'rgba(0,180,216,0.5)',
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-                          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                        {t.viewSourceLink}
-                      </a>
+                      {/* 원문 링크 + 중복 매체 표시 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <a
+                          href={article.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            color: 'rgba(0,180,216,0.5)',
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
+                          {t.viewSourceLink}
+                        </a>
+
+                        {/* 동일 사건 복수 매체 보도 표시 */}
+                        {isDupe && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{
+                              fontSize: 10,
+                              color: 'rgba(255,255,255,0.2)',
+                              fontFamily: 'monospace',
+                            }}>
+                              +{group.length - 1}개 매체
+                            </span>
+                            {group.slice(1).map((alt, ai) => (
+                              <a
+                                key={ai}
+                                href={alt.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={alt.source_domain ?? ''}
+                                style={{
+                                  fontSize: 10,
+                                  color: 'rgba(0,180,216,0.35)',
+                                  fontFamily: 'monospace',
+                                  textDecoration: 'none',
+                                  border: '1px solid rgba(0,180,216,0.15)',
+                                  borderRadius: 4,
+                                  padding: '1px 5px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {alt.source_domain ?? ''}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )
                 })

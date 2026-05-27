@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 from datetime import datetime, timezone, timedelta
@@ -10,6 +11,30 @@ from app.services.summarizer import summarize_batch
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _title_words(title: str) -> set[str]:
+    """제목에서 의미 있는 단어 집합 추출 (3자 이상)"""
+    return {w for w in re.sub(r'[^\w\s]', '', title.lower()).split() if len(w) >= 3}
+
+
+def _are_similar_titles(t1: str, t2: str, threshold: float = 0.5) -> bool:
+    """Jaccard 유사도로 두 제목이 같은 사건을 다루는지 판단"""
+    w1, w2 = _title_words(t1), _title_words(t2)
+    if len(w1) < 3 or len(w2) < 3:
+        return False
+    union = w1 | w2
+    return len(w1 & w2) / len(union) >= threshold if union else False
+
+
+def _dedup_by_title(articles: list[dict]) -> list[dict]:
+    """같은 수집 배치 내 유사 제목 기사 제거 (위협 레벨 높은 것 또는 첫 번째 유지)"""
+    kept: list[dict] = []
+    for article in articles:
+        title = article.get("source_title", "")
+        if not any(_are_similar_titles(title, k.get("source_title", "")) for k in kept):
+            kept.append(article)
+    return kept
 
 USAGE_LOG_PATH = Path(__file__).resolve().parents[3] / "logs" / "api_usage.log"
 
@@ -36,7 +61,12 @@ async def run_collection_cycle(db: Session) -> int:
     existing_set = set(existing)
 
     new_articles = [a for a in raw_articles if a["url"] not in existing_set]
-    logger.info(f"New articles to save: {len(new_articles)}/{len(raw_articles)}")
+    before_dedup = len(new_articles)
+    new_articles = _dedup_by_title(new_articles)
+    logger.info(
+        f"New articles to save: {len(new_articles)}/{len(raw_articles)} "
+        f"(title dedup: {before_dedup - len(new_articles)} removed)"
+    )
 
     if not new_articles:
         return 0
