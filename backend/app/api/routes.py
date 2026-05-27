@@ -282,16 +282,37 @@ def get_stats(db: Session = Depends(get_db)):
 def get_latest_news(
     limit: int = 30,
     min_level: int = 1,
+    date: Optional[str] = None,   # YYYY-MM-DD (KST 기준). 미입력 시 오늘
     db: Session = Depends(get_db),
 ):
     limit = min(limit, 100)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    today_kst = datetime.now(KST).date()
+
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date() if date else today_kst
+    except ValueError:
+        target_date = today_kst
+
+    # 미래 날짜는 오늘로 클램프
+    if target_date > today_kst:
+        target_date = today_kst
+
+    start_dt = datetime(target_date.year, target_date.month, target_date.day,
+                        0, 0, 0, tzinfo=KST)
+    if target_date >= today_kst:
+        # 오늘: 00:00 ~ 현재 시각
+        end_dt = datetime.now(KST)
+    else:
+        # 과거: 해당 날짜 23:59:59
+        end_dt = datetime(target_date.year, target_date.month, target_date.day,
+                          23, 59, 59, tzinfo=KST)
 
     articles = db.execute(
         select(NewsArticle)
         .where(
             NewsArticle.threat_level >= min_level,
-            NewsArticle.collected_at >= cutoff,
+            NewsArticle.collected_at >= start_dt,
+            NewsArticle.collected_at <= end_dt,
             NewsArticle.ai_processed.is_(True),
         )
         .order_by(NewsArticle.threat_level.desc(), NewsArticle.collected_at.desc())

@@ -69,13 +69,36 @@ function generateReportText(articles: NewsArticle[], t: Translations): string {
   return lines.join('\n')
 }
 
+function toKSTDateString(d: Date): string {
+  // Date → "YYYY-MM-DD" KST 기준
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().slice(0, 10)
+}
+
+function todayKST(): string {
+  return toKSTDateString(new Date())
+}
+
 export default function DailyReportPanel() {
   const [open, setOpen] = useState(false)
   const [selectedCats, setSelectedCats] = useState<Set<Category>>(new Set())
+  const [selectedDate, setSelectedDate] = useState<string>(todayKST)
+
+  const isToday = selectedDate === todayKST()
+
+  const goDay = (delta: number) => {
+    const d = new Date(selectedDate + 'T00:00:00+09:00')
+    d.setDate(d.getDate() + delta)
+    const next = toKSTDateString(d)
+    // 미래 이동 금지
+    if (next > todayKST()) return
+    setSelectedDate(next)
+    setSelectedCats(new Set())
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['latest-news'],
-    queryFn: () => fetchLatestNews(100),
+    queryKey: ['latest-news', selectedDate],
+    queryFn: () => fetchLatestNews(100, selectedDate),
     enabled: open,
     staleTime: 5 * 60 * 1000,
   })
@@ -107,7 +130,7 @@ export default function DailyReportPanel() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ahchacha-report-${new Date().toISOString().slice(0, 10)}.txt`
+    a.download = `ahchacha-report-${selectedDate}.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -204,16 +227,66 @@ export default function DailyReportPanel() {
                 }}>
                   {t.dailyReport}
                 </div>
+
+                {/* 날짜 네비게이터 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  <button
+                    onClick={() => goDay(-1)}
+                    style={{
+                      width: 22, height: 22, borderRadius: 5,
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      cursor: 'pointer', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                      stroke="rgba(255,255,255,0.55)" strokeWidth="2.5" strokeLinecap="round">
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                  </button>
+
+                  <span style={{
+                    color: 'rgba(255,255,255,0.55)',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    minWidth: 90,
+                    textAlign: 'center',
+                  }}>
+                    {selectedDate}
+                    {isToday && (
+                      <span style={{ color: 'rgba(0,180,216,0.7)', marginLeft: 4, fontSize: 10 }}>
+                        TODAY
+                      </span>
+                    )}
+                  </span>
+
+                  <button
+                    onClick={() => goDay(1)}
+                    disabled={isToday}
+                    style={{
+                      width: 22, height: 22, borderRadius: 5,
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      cursor: isToday ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      opacity: isToday ? 0.3 : 1,
+                    }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                      stroke="rgba(255,255,255,0.55)" strokeWidth="2.5" strokeLinecap="round">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </button>
+                </div>
+
                 <div style={{
-                  color: 'rgba(255,255,255,0.35)',
+                  color: 'rgba(255,255,255,0.3)',
                   fontSize: 11,
-                  marginTop: 3,
+                  marginTop: 4,
                   fontFamily: 'monospace',
                 }}>
-                  {t.dailyReportDate(
-                    new Date().toLocaleDateString(t.dateLocale),
-                    articles.length
-                  )}
+                  {articles.length}건
                   {selectedCats.size > 0 && (
                     <span style={{ color: 'rgba(0,180,216,0.6)', marginLeft: 6 }}>
                       · {t.categoryAll} {allArticles.length}건 중

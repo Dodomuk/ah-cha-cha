@@ -47,9 +47,9 @@ export async function fetchStats(): Promise<StatsData> {
   return data
 }
 
-export async function fetchLatestNews(limit = 100): Promise<LatestNewsResponse> {
+export async function fetchLatestNews(limit = 100, date?: string): Promise<LatestNewsResponse> {
   const { data } = await client.get<LatestNewsResponse>('/api/news/latest', {
-    params: { limit, min_level: 1 },
+    params: { limit, min_level: 1, ...(date ? { date } : {}) },
   })
   return data
 }
