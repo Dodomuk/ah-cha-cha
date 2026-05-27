@@ -14,6 +14,7 @@ export interface CountriesResponse {
 
 export interface NewsArticle {
   id: string
+  source_title?: string | null
   summary_title: string
   summary_what: string
   summary_impact: string
