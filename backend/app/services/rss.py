@@ -14,7 +14,7 @@ SECURITY_RSS_FEEDS = [
     "https://www.darkreading.com/rss.xml",
     # 국내
     "https://asec.ahnlab.com/ko/feed/",
-    "https://www.boannews.com/rss/news.xml",
+    "http://www.boannews.com/media/news_rss.xml",
     "https://www.dailysecu.com/rss/allArticle.xml",
 ]
 

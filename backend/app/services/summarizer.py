@@ -76,13 +76,15 @@ async def summarize_article(title: str) -> tuple[dict | None, dict]:
         return None, zero_usage
 
 
-async def summarize_batch(articles: list[dict], concurrency: int = 3) -> tuple[list[dict], dict]:
-    """Returns (processed_articles, total_token_usage)."""
+async def summarize_batch(articles: list[dict], concurrency: int = 2) -> tuple[list[dict], dict]:
+    """Returns (processed_articles, total_token_usage).
+    concurrency=2: 429 rate limit 방지를 위해 동시 요청 수 제한."""
     semaphore = asyncio.Semaphore(concurrency)
     total_tokens = {"input": 0, "output": 0}
 
     async def _process(article: dict) -> dict:
         async with semaphore:
+            await asyncio.sleep(0.3)  # 요청 간 최소 간격으로 rate limit 완화
             result, usage = await summarize_article(article.get("source_title", ""))
             total_tokens["input"] += usage["input"]
             total_tokens["output"] += usage["output"]
