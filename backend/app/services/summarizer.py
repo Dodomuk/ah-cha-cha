@@ -39,8 +39,23 @@ victim_codes: 공격의 피해를 입은 국가들. 불명이면 [].
 국가를 특정할 수 없으면 각 배열에 빈 배열 []을 반환하세요."""
 
 
-async def summarize_article(title: str) -> tuple[dict | None, dict]:
-    """Returns (result, token_usage). token_usage = {"input": 0, "output": 0} on failure."""
+_REPLACEMENT_CHAR = "�"
+
+
+def _has_replacement_char(data: dict) -> bool:
+    """JSON 결과 내 어떤 문자열 필드에도 U+FFFD(깨진 문자)가 있으면 True."""
+    for v in data.values():
+        if isinstance(v, str) and _REPLACEMENT_CHAR in v:
+            return True
+    return False
+
+
+async def summarize_article(title: str, max_retries: int = 3) -> tuple[dict | None, dict]:
+    """Returns (result, token_usage). token_usage = {"input": 0, "output": 0} on failure.
+
+    Claude Haiku 모델이 한글 생성 시 간헐적으로 U+FFFD(replacement character)를 반환하는
+    버그가 있으므로, 감지되면 최대 max_retries 회 재시도합니다.
+    """
     zero_usage = {"input": 0, "output": 0}
 
     if not settings.claude_api_key:
@@ -48,32 +63,51 @@ async def summarize_article(title: str) -> tuple[dict | None, dict]:
         return None, zero_usage
 
     client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+    total_usage = {"input": 0, "output": 0}
 
-    try:
-        message = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=512,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": USER_PROMPT_TEMPLATE.format(title=title[:500])}
-            ],
-        )
-        usage = {
-            "input": message.usage.input_tokens,
-            "output": message.usage.output_tokens,
-        }
-        raw = message.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw), usage
-    except json.JSONDecodeError:
-        logger.error(f"JSON parse failed for title: {title[:80]}")
-        return None, zero_usage
-    except Exception as e:
-        logger.error(f"Claude API error: {e}")
-        return None, zero_usage
+    for attempt in range(1, max_retries + 1):
+        try:
+            message = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {"role": "user", "content": USER_PROMPT_TEMPLATE.format(title=title[:500])}
+                ],
+            )
+            total_usage["input"] += message.usage.input_tokens
+            total_usage["output"] += message.usage.output_tokens
+
+            raw = message.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+
+            result = json.loads(raw)
+
+            if _has_replacement_char(result):
+                logger.warning(
+                    f"U+FFFD detected in Claude response (attempt {attempt}/{max_retries}): {title[:60]}"
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(0.5)
+                    continue
+                else:
+                    logger.error(f"All {max_retries} attempts returned garbled text, giving up: {title[:60]}")
+                    return None, total_usage
+
+            return result, total_usage
+
+        except json.JSONDecodeError:
+            logger.error(f"JSON parse failed for title (attempt {attempt}): {title[:80]}")
+            if attempt >= max_retries:
+                return None, total_usage
+        except Exception as e:
+            logger.error(f"Claude API error: {e}")
+            return None, total_usage
+
+    return None, total_usage
 
 
 async def summarize_batch(articles: list[dict], concurrency: int = 2) -> tuple[list[dict], dict]:
