@@ -297,15 +297,17 @@ def get_latest_news(
     if target_date > today_kst:
         target_date = today_kst
 
-    start_dt = datetime(target_date.year, target_date.month, target_date.day,
-                        0, 0, 0, tzinfo=KST)
+    # KST → UTC 명시적 변환 (PostgreSQL timezone 비교 오차 방지)
+    kst_start = datetime(target_date.year, target_date.month, target_date.day,
+                         0, 0, 0, tzinfo=KST)
+    start_dt = kst_start.astimezone(timezone.utc)
+
     if target_date >= today_kst:
-        # 오늘: 00:00 ~ 현재 시각
-        end_dt = datetime.now(KST)
+        end_dt = datetime.now(timezone.utc)
     else:
-        # 과거: 해당 날짜 23:59:59
-        end_dt = datetime(target_date.year, target_date.month, target_date.day,
-                          23, 59, 59, tzinfo=KST)
+        kst_end = datetime(target_date.year, target_date.month, target_date.day,
+                           23, 59, 59, tzinfo=KST)
+        end_dt = kst_end.astimezone(timezone.utc)
 
     articles = db.execute(
         select(NewsArticle)

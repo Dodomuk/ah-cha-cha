@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class NewsArticleOut(BaseModel):
     id: UUID
+    source_title: str | None = None   # 원문 제목 (프론트 중복 그룹화에 사용)
     summary_title: str | None
     summary_what: str | None
     summary_impact: str | None

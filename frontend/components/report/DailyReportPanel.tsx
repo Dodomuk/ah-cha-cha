@@ -98,15 +98,18 @@ function titleSimilarity(a: string, b: string): number {
   return [...wa].filter(w => wb.has(w)).length / union.size
 }
 
-/** 유사 제목 기사를 그룹으로 묶기 (threshold: 0.4) */
+/** 유사 제목 기사를 그룹으로 묶기
+ * source_title(영문 원제) 기준으로 비교 — 한/영 혼재 문제 방지
+ * threshold: 0.3 (단어 30% 이상 겹치면 동일 사건으로 간주) */
 function groupArticles(articles: NewsArticle[]): NewsArticle[][] {
   const groups: NewsArticle[][] = []
   for (const article of articles) {
-    const title = article.summary_title ?? article.source_title ?? ''
+    // 영문 원제 우선, 없으면 한국어 요약 제목
+    const title = article.source_title ?? article.summary_title ?? ''
     let placed = false
     for (const group of groups) {
-      const rep = group[0].summary_title ?? group[0].source_title ?? ''
-      if (titleSimilarity(title, rep) >= 0.4) {
+      const rep = group[0].source_title ?? group[0].summary_title ?? ''
+      if (titleSimilarity(title, rep) >= 0.3) {
         group.push(article)
         placed = true
         break
