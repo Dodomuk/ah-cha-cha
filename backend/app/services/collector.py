@@ -24,7 +24,7 @@ async def run_collection_cycle(db: Session) -> int:
     """RSS 수집만 수행. TEST_MODE에서는 AI 요약을 건너뛴다."""
     logger.info("Starting RSS collection cycle")
 
-    raw_articles = await fetch_security_news(limit=100)
+    raw_articles = await fetch_security_news(limit=200)
     if not raw_articles:
         logger.warning("No articles fetched from RSS")
         return 0

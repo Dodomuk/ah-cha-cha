@@ -41,6 +41,17 @@ export interface Translations {
   reportSource: string
   // TrendChart
   trendLabel: string
+  // Category filter
+  categoryAll: string
+  categoryMobile: string
+  categoryRansomware: string
+  categoryApt: string
+  categoryVulnerability: string
+  categoryBreach: string
+  categoryFinance: string
+  categoryInfrastructure: string
+  categoryCloud: string
+  categoryKorea: string
   // Search
   searchTitle: string
   searchPlaceholder: string
@@ -92,6 +103,17 @@ export const translations: Record<Lang, Translations> = {
 
     trendLabel: '7일 위협 추이',
 
+    categoryAll: '전체',
+    categoryMobile: '모바일',
+    categoryRansomware: '랜섬웨어',
+    categoryApt: '국가배후',
+    categoryVulnerability: '취약점/CVE',
+    categoryBreach: '데이터 유출',
+    categoryFinance: '금융/암호화폐',
+    categoryInfrastructure: '산업/인프라',
+    categoryCloud: '클라우드',
+    categoryKorea: '국내',
+
     searchTitle: '기사 검색',
     searchPlaceholder: '키워드 검색...',
     searchNoResults: '검색 결과가 없습니다',
@@ -139,6 +161,17 @@ export const translations: Record<Lang, Translations> = {
     reportSource: '▸ Source:',
 
     trendLabel: '7-day Trend',
+
+    categoryAll: 'All',
+    categoryMobile: 'Mobile',
+    categoryRansomware: 'Ransomware',
+    categoryApt: 'Nation-state',
+    categoryVulnerability: 'Vuln/CVE',
+    categoryBreach: 'Data Breach',
+    categoryFinance: 'Finance/Crypto',
+    categoryInfrastructure: 'Infrastructure',
+    categoryCloud: 'Cloud',
+    categoryKorea: 'Korea',
 
     searchTitle: 'Search Articles',
     searchPlaceholder: 'Search keywords...',

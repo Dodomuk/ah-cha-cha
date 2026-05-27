@@ -3,6 +3,20 @@
 import { NewsArticle } from '@/types'
 import { THREAT_STROKE } from '@/lib/threatColors'
 import { useLangStore } from '@/lib/langStore'
+import { CATEGORIES, Category, detectCategories } from '@/lib/categories'
+import type { Translations } from '@/lib/i18n'
+
+const CATEGORY_LABEL_KEY: Record<Category, keyof Translations> = {
+  mobile:         'categoryMobile',
+  ransomware:     'categoryRansomware',
+  apt:            'categoryApt',
+  vulnerability:  'categoryVulnerability',
+  breach:         'categoryBreach',
+  finance:        'categoryFinance',
+  infrastructure: 'categoryInfrastructure',
+  cloud:          'categoryCloud',
+  korea:          'categoryKorea',
+}
 
 interface Props {
   article: NewsArticle
@@ -125,6 +139,7 @@ function AnimatedSection({ icon, label, text, color, startDelay, isLast }: Secti
 export default function NewsCard({ article, cardIndex = 0 }: Props) {
   const color = THREAT_STROKE[article.threat_level]
   const t = useLangStore((s) => s.t)
+  const cats = detectCategories(article)
 
   // 카드 인덱스에 따라 전체 타임라인 오프셋
   const base = Math.min(cardIndex, 2) * 180
@@ -168,6 +183,35 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
           ))}
         </p>
       </div>
+
+      {/* 카테고리 태그 */}
+      {cats.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+          {cats.map((catId) => {
+            const catDef = CATEGORIES.find((c) => c.id === catId)
+            if (!catDef) return null
+            return (
+              <span
+                key={catId}
+                style={{
+                  fontSize: 10,
+                  padding: '1px 7px',
+                  borderRadius: 10,
+                  background: `${catDef.color}15`,
+                  color: `${catDef.color}cc`,
+                  border: `1px solid ${catDef.color}30`,
+                  fontFamily: 'monospace',
+                  opacity: 0,
+                  animation: 'fadeSlideIn 0.2s ease forwards',
+                  animationDelay: `${base + 40}ms`,
+                }}
+              >
+                {catDef.icon} {t[CATEGORY_LABEL_KEY[catId]] as string}
+              </span>
+            )
+          })}
+        </div>
+      )}
 
       {/* 섹션들 */}
       {article.summary_what && (

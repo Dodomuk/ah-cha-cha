@@ -2,7 +2,7 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from app.models.database import SessionLocal
 from app.services.collector import run_collection_cycle
 
@@ -25,17 +25,15 @@ async def collection_job() -> None:
 
 
 def start_scheduler() -> None:
-    # 매일 06:00 ~ 24:00, 짝수 시간마다 실행 (0,2,4,...,22 → 06,08,...,22,00 → 필터링)
-    # 한국 시간 6,8,10,12,14,16,18,20,22,0시 (9회)
     scheduler.add_job(
         collection_job,
-        CronTrigger(hour=6, minute=0, timezone="Asia/Seoul"),
+        IntervalTrigger(minutes=30),
         id="news_collection",
         replace_existing=True,
-        misfire_grace_time=300,
+        misfire_grace_time=60,
     )
     scheduler.start()
-    logger.info("Scheduler started (runs daily at 06:00 KST)")
+    logger.info("Scheduler started (runs every 30 minutes)")
 
 
 def stop_scheduler() -> None:

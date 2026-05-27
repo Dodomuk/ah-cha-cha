@@ -6,6 +6,7 @@ import { fetchLatestNews } from '@/lib/api'
 import { NewsArticle } from '@/types'
 import { useLangStore } from '@/lib/langStore'
 import type { Translations } from '@/lib/i18n'
+import { CATEGORIES, Category, detectCategories, filterByCategories } from '@/lib/categories'
 
 const LEVEL_COLOR: Record<number, string> = {
   4: '#FF2D2D',
@@ -19,6 +20,18 @@ const LEVEL_LABEL: Record<number, string> = {
   3: 'High',
   2: 'Medium',
   1: 'Low',
+}
+
+const CATEGORY_LABEL_KEY: Record<Category, keyof Translations> = {
+  mobile:         'categoryMobile',
+  ransomware:     'categoryRansomware',
+  apt:            'categoryApt',
+  vulnerability:  'categoryVulnerability',
+  breach:         'categoryBreach',
+  finance:        'categoryFinance',
+  infrastructure: 'categoryInfrastructure',
+  cloud:          'categoryCloud',
+  korea:          'categoryKorea',
 }
 
 function generateReportText(articles: NewsArticle[], t: Translations): string {
@@ -58,6 +71,7 @@ function generateReportText(articles: NewsArticle[], t: Translations): string {
 
 export default function DailyReportPanel() {
   const [open, setOpen] = useState(false)
+  const [selectedCats, setSelectedCats] = useState<Set<Category>>(new Set())
 
   const { data, isLoading } = useQuery({
     queryKey: ['latest-news'],
@@ -66,8 +80,26 @@ export default function DailyReportPanel() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const articles = data?.articles ?? []
+  const allArticles = data?.articles ?? []
   const t = useLangStore((s) => s.t)
+
+  const articles = filterByCategories(allArticles, selectedCats)
+
+  const catCounts = Object.fromEntries(
+    CATEGORIES.map((cat) => [
+      cat.id,
+      allArticles.filter((a) => detectCategories(a).includes(cat.id)).length,
+    ])
+  ) as Record<Category, number>
+
+  const toggleCat = (cat: Category) => {
+    setSelectedCats((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
+      return next
+    })
+  }
 
   const handleDownload = () => {
     const text = generateReportText(articles, t)
@@ -116,7 +148,6 @@ export default function DailyReportPanel() {
           el.style.borderColor = 'rgba(0,180,216,0.35)'
         }}
       >
-        {/* 문서 아이콘 */}
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
           stroke="rgba(0,180,216,0.85)" strokeWidth="1.7"
           strokeLinecap="round" strokeLinejoin="round">
@@ -179,12 +210,19 @@ export default function DailyReportPanel() {
                   marginTop: 3,
                   fontFamily: 'monospace',
                 }}>
-                  {t.dailyReportDate(new Date().toLocaleDateString(t.dateLocale), articles.length)}
+                  {t.dailyReportDate(
+                    new Date().toLocaleDateString(t.dateLocale),
+                    articles.length
+                  )}
+                  {selectedCats.size > 0 && (
+                    <span style={{ color: 'rgba(0,180,216,0.6)', marginLeft: 6 }}>
+                      · {t.categoryAll} {allArticles.length}건 중
+                    </span>
+                  )}
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>
-                {/* 다운로드 버튼 */}
                 <button
                   onClick={handleDownload}
                   disabled={articles.length === 0}
@@ -212,7 +250,6 @@ export default function DailyReportPanel() {
                   </svg>
                 </button>
 
-                {/* 닫기 버튼 */}
                 <button
                   onClick={() => setOpen(false)}
                   title="닫기"
@@ -237,6 +274,64 @@ export default function DailyReportPanel() {
               </div>
             </div>
 
+            {/* 카테고리 필터 칩 */}
+            <div style={{
+              padding: '10px 20px',
+              borderBottom: '1px solid rgba(255,255,255,0.05)',
+              flexShrink: 0,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}>
+              {/* 전체 칩 */}
+              <button
+                onClick={() => setSelectedCats(new Set())}
+                style={{
+                  flexShrink: 0,
+                  padding: '4px 10px',
+                  borderRadius: 20,
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: `1px solid ${selectedCats.size === 0 ? 'rgba(0,180,216,0.7)' : 'rgba(255,255,255,0.12)'}`,
+                  background: selectedCats.size === 0 ? 'rgba(0,180,216,0.15)' : 'transparent',
+                  color: selectedCats.size === 0 ? '#00B4D8' : 'rgba(255,255,255,0.4)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {t.categoryAll}{allArticles.length > 0 ? ` (${allArticles.length})` : ''}
+              </button>
+
+              {CATEGORIES.map((cat) => {
+                const isActive = selectedCats.has(cat.id)
+                const count = catCounts[cat.id]
+                if (count === 0) return null
+                const label = t[CATEGORY_LABEL_KEY[cat.id]] as string
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => toggleCat(cat.id)}
+                    style={{
+                      flexShrink: 0,
+                      padding: '4px 10px',
+                      borderRadius: 20,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: `1px solid ${isActive ? cat.color : 'rgba(255,255,255,0.12)'}`,
+                      background: isActive ? `${cat.color}20` : 'transparent',
+                      color: isActive ? cat.color : 'rgba(255,255,255,0.4)',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {cat.icon} {label} ({count})
+                  </button>
+                )
+              })}
+            </div>
+
             {/* 기사 목록 */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px' }}>
               {isLoading ? (
@@ -257,11 +352,14 @@ export default function DailyReportPanel() {
                   fontFamily: 'monospace',
                   fontSize: 12,
                 }}>
-                  {t.noArticles}
+                  {selectedCats.size > 0
+                    ? '선택한 카테고리의 기사가 없습니다'
+                    : t.noArticles}
                 </div>
               ) : (
                 articles.map((article, i) => {
                   const color = LEVEL_COLOR[article.threat_level] ?? '#555'
+                  const cats = detectCategories(article)
                   return (
                     <div key={String(article.id ?? i)} style={{
                       marginBottom: 12,
@@ -272,7 +370,7 @@ export default function DailyReportPanel() {
                       borderRadius: 10,
                     }}>
                       {/* 레벨 + 제목 */}
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
                         <span style={{
                           flexShrink: 0,
                           fontSize: 10,
@@ -295,6 +393,29 @@ export default function DailyReportPanel() {
                           {article.summary_title}
                         </span>
                       </div>
+
+                      {/* 카테고리 태그 */}
+                      {cats.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                          {cats.map((catId) => {
+                            const catDef = CATEGORIES.find((c) => c.id === catId)
+                            if (!catDef) return null
+                            return (
+                              <span key={catId} style={{
+                                fontSize: 10,
+                                padding: '1px 6px',
+                                borderRadius: 10,
+                                background: `${catDef.color}15`,
+                                color: `${catDef.color}cc`,
+                                border: `1px solid ${catDef.color}30`,
+                                fontFamily: 'monospace',
+                              }}>
+                                {catDef.icon} {t[CATEGORY_LABEL_KEY[catId]] as string}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      )}
 
                       {/* 사건 개요 */}
                       {article.summary_what && (
