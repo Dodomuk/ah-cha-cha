@@ -3,11 +3,15 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useCountryNews } from '@/hooks/useCountryNews'
-import { THREAT_STROKE, THREAT_CONFIG, THREAT_LABEL } from '@/lib/threatColors'
+import { THREAT_STROKE, THREAT_CONFIG } from '@/lib/threatColors'
 import { useLangStore } from '@/lib/langStore'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import NewsCard from './NewsCard'
 import TrendChart from './TrendChart'
 import { useCountryTrend } from '@/hooks/useCountryTrend'
+import type { CountryNewsResponse } from '@/types'
+import type { TrendResponse } from '@/types'
+import type { Translations } from '@/lib/i18n'
 
 const POPUP_W = 520
 const POPUP_MAX_H = 580
@@ -26,8 +30,6 @@ function calcPosition(cx: number, cy: number): { left: number; top: number } {
   return { left, top }
 }
 
-const LEVEL_ICON: Record<number, string> = { 4: '🔴', 3: '🟠', 2: '🟡', 1: '🟢', 0: '⚪' }
-
 function getFlagEmoji(code: string): string {
   return code
     .toUpperCase()
@@ -36,17 +38,120 @@ function getFlagEmoji(code: string): string {
     .join('')
 }
 
+// ── 공유 서브컴포넌트 ────────────────────────────────────────────
+
+function PanelHeader({
+  countryCode,
+  countryName,
+  data,
+  color,
+  onClose,
+  t,
+}: {
+  countryCode: string | null
+  countryName: string | null
+  data: CountryNewsResponse | undefined
+  color: string
+  onClose: () => void
+  t: Translations
+}) {
+  return (
+    <div className="flex items-start justify-between px-5 pt-4 pb-3 shrink-0">
+      <div className="flex flex-col gap-1.5 min-w-0 pr-3">
+        <div className="flex items-center gap-2">
+          {countryCode && (
+            <span className="text-[18px] leading-none">{getFlagEmoji(countryCode)}</span>
+          )}
+          <span
+            className="font-bold text-[17px] text-white truncate tracking-tight"
+            style={{ textShadow: `0 0 20px ${color}50` }}
+          >
+            {countryName || '국가 선택'}
+          </span>
+        </div>
+        {data && data.articles.length > 0 && (
+          <span className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            {t.securityIssues(data.articles.length)}
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={onClose}
+        className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all duration-150 active:scale-95"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          color: 'rgba(255,255,255,0.4)',
+          fontSize: 18,
+        }}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+function PanelTrend({ trendData, t }: { trendData: TrendResponse; t: Translations }) {
+  return (
+    <div style={{
+      padding: '12px 20px 10px',
+      flexShrink: 0,
+      borderBottom: '1px solid rgba(255,255,255,0.05)',
+    }}>
+      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.06em', marginBottom: 8 }}>
+        {t.trendLabel}
+      </div>
+      <TrendChart points={trendData.points} />
+    </div>
+  )
+}
+
+function PanelNewsList({
+  isLoading,
+  data,
+  t,
+}: {
+  isLoading: boolean
+  data: CountryNewsResponse | undefined
+  t: Translations
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: '12px 20px' }}>
+      {isLoading && (
+        <div className="flex items-center justify-center h-32 font-mono text-sm" style={{ color: 'rgba(255,255,255,0.25)' }}>
+          <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>{t.panelLoading}</span>
+        </div>
+      )}
+      {!isLoading && data?.articles.length === 0 && (
+        <div className="flex flex-col items-center justify-center h-32 gap-3">
+          <div style={{ fontSize: 28, opacity: 0.3 }}>🛡️</div>
+          <span className="text-[12px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            {t.noIssues}
+          </span>
+        </div>
+      )}
+      {!isLoading && data?.articles.map((article, index) => (
+        <NewsCard key={article.id} article={article} cardIndex={index} />
+      ))}
+    </div>
+  )
+}
+
+// ── 메인 컴포넌트 ────────────────────────────────────────────────
+
 export default function CountryPanel() {
   const { isPanelOpen, selectedCountryCode, selectedCountryName, clickPosition, closePanel, dateRange } = useAppStore()
   const { data, isLoading } = useCountryNews(selectedCountryCode, dateRange.start, dateRange.end)
   const { data: trendData } = useCountryTrend(selectedCountryCode)
   const t = useLangStore((s) => s.t)
+  const isMobile = useIsMobile()
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     if (isPanelOpen) {
-      const t = setTimeout(() => setVisible(true), 10)
-      return () => clearTimeout(t)
+      const timer = setTimeout(() => setVisible(true), 10)
+      return () => clearTimeout(timer)
     } else {
       setVisible(false)
     }
@@ -57,6 +162,75 @@ export default function CountryPanel() {
   const level = data?.threat_level ?? 0
   const color = THREAT_STROKE[level]
   const config = THREAT_CONFIG[level]
+  const hasTrend = !!(trendData && trendData.points.some((p) => p.level > 0))
+
+  const sharedContent = (
+    <>
+      <PanelHeader
+        countryCode={selectedCountryCode}
+        countryName={selectedCountryName}
+        data={data}
+        color={color}
+        onClose={closePanel}
+        t={t}
+      />
+      <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginInline: 20, flexShrink: 0 }} />
+      {hasTrend && <PanelTrend trendData={trendData!} t={t} />}
+      <PanelNewsList isLoading={isLoading} data={data} t={t} />
+      <div style={{ height: 8, flexShrink: 0 }} />
+    </>
+  )
+
+  // ── 모바일: 바텀시트 ─────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <>
+        {/* 딤드 오버레이 */}
+        <div
+          onClick={closePanel}
+          style={{
+            position: 'fixed', inset: 0,
+            background: visible ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0)',
+            transition: 'background 0.28s',
+            zIndex: 49,
+          }}
+        />
+        {/* 바텀시트 */}
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '74dvh',
+            zIndex: 50,
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: '20px 20px 0 0',
+            background: `radial-gradient(ellipse at top, ${color}0d 0%, transparent 45%), rgba(7,7,13,0.97)`,
+            backdropFilter: 'blur(40px) saturate(1.8)',
+            WebkitBackdropFilter: 'blur(40px) saturate(1.8)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderBottom: 'none',
+            boxShadow: `0 0 0 1px ${color}25, 0 -8px 40px rgba(0,0,0,0.6)`,
+            transform: visible ? 'translateY(0)' : 'translateY(100%)',
+            transition: 'transform 0.3s cubic-bezier(0.22,1,0.36,1)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          }}
+        >
+          {/* 드래그 핸들 */}
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px', flexShrink: 0 }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.18)' }} />
+          </div>
+          {/* 상단 컬러 라인 */}
+          <div style={{ height: 2, background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)`, flexShrink: 0 }} />
+          {sharedContent}
+        </div>
+      </>
+    )
+  }
+
+  // ── 데스크톱: 팝업 ───────────────────────────────────────────
   const pos = calcPosition(clickPosition.x, clickPosition.y)
 
   return (
@@ -74,13 +248,10 @@ export default function CountryPanel() {
         display: 'flex',
         flexDirection: 'column',
         borderRadius: 18,
-        // 위협 레벨 색상이 배경에 은은하게 베이는 radial gradient
-        background: `radial-gradient(ellipse at top, ${color}0d 0%, transparent 55%), rgba(9, 9, 13, 0.82)`,
+        background: `radial-gradient(ellipse at top, ${color}0d 0%, transparent 55%), rgba(9,9,13,0.82)`,
         backdropFilter: 'blur(40px) saturate(1.8)',
         WebkitBackdropFilter: 'blur(40px) saturate(1.8)',
-        border: `1px solid rgba(255,255,255,0.07)`,
-        // 상단 라인을 gradient로
-        outline: `1.5px solid transparent`,
+        border: '1px solid rgba(255,255,255,0.07)',
         boxShadow: `
           0 0 0 1px ${color}30,
           0 8px 16px rgba(0,0,0,0.4),
@@ -90,106 +261,8 @@ export default function CountryPanel() {
       }}
     >
       {/* 상단 컬러 액센트 바 */}
-      <div
-        style={{
-          height: 3,
-          borderRadius: '18px 18px 0 0',
-          background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)`,
-          flexShrink: 0,
-        }}
-      />
-
-      {/* 헤더 */}
-      <div className="flex items-start justify-between px-5 pt-4 pb-3 shrink-0">
-        <div className="flex flex-col gap-1.5 min-w-0 pr-3">
-          {/* 국가명 + 국기 */}
-          <div className="flex items-center gap-2">
-            {selectedCountryCode && (
-              <span className="text-[18px] leading-none">
-                {getFlagEmoji(selectedCountryCode)}
-              </span>
-            )}
-            <span
-              className="font-bold text-[17px] text-white truncate tracking-tight"
-              style={{ textShadow: `0 0 20px ${color}50` }}
-            >
-              {selectedCountryName || '국가 선택'}
-            </span>
-          </div>
-          {/* 기사 수 */}
-          {data && data.articles.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                {t.securityIssues(data.articles.length)}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* 닫기 버튼 */}
-        <button
-          onClick={closePanel}
-          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
-          style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            color: 'rgba(255,255,255,0.4)',
-            fontSize: 16,
-          }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'white')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.4)')}
-        >
-          ×
-        </button>
-      </div>
-
-      {/* 구분선 */}
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginInline: 20, flexShrink: 0 }} />
-
-      {/* 7일 트렌드 차트 */}
-      {trendData && trendData.points.some((p) => p.level > 0) && (
-        <div style={{
-          padding: '12px 20px 10px',
-          flexShrink: 0,
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-        }}>
-          <div style={{
-            color: 'rgba(255,255,255,0.3)',
-            fontSize: 10,
-            fontFamily: 'monospace',
-            letterSpacing: '0.06em',
-            marginBottom: 8,
-          }}>
-            {t.trendLabel}
-          </div>
-          <TrendChart points={trendData.points} />
-        </div>
-      )}
-
-      {/* 뉴스 목록 */}
-      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: '12px 20px' }}>
-        {isLoading && (
-          <div className="flex items-center justify-center h-32 font-mono text-sm" style={{ color: 'rgba(255,255,255,0.25)' }}>
-            <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>{t.panelLoading}</span>
-          </div>
-        )}
-
-        {!isLoading && data?.articles.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-32 gap-3">
-            <div style={{ fontSize: 28, opacity: 0.3 }}>🛡️</div>
-            <span className="text-[12px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
-              {t.noIssues}
-            </span>
-          </div>
-        )}
-
-        {!isLoading && data?.articles.map((article, index) => (
-          <NewsCard key={article.id} article={article} cardIndex={index} />
-        ))}
-      </div>
-
-      {/* 하단 여백 */}
-      <div style={{ height: 8, flexShrink: 0 }} />
+      <div style={{ height: 3, borderRadius: '18px 18px 0 0', background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)`, flexShrink: 0 }} />
+      {sharedContent}
     </div>
   )
 }

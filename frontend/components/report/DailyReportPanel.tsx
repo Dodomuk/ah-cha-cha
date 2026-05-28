@@ -179,14 +179,14 @@ export default function DailyReportPanel() {
 
   return (
     <>
-      {/* 플로팅 버튼 */}
+      {/* 플로팅 버튼 — 모바일은 safe area 고려 */}
       <button
         onClick={() => setOpen(true)}
         title="일일 보안 리포트"
         style={{
           position: 'fixed',
-          bottom: 32,
-          right: 32,
+          bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+          right: 'calc(20px + env(safe-area-inset-right, 0px))',
           width: 50,
           height: 50,
           borderRadius: '50%',
@@ -242,12 +242,15 @@ export default function DailyReportPanel() {
           <div style={{
             width: 480,
             maxWidth: '100vw',
-            height: '100vh',
+            height: '100dvh',
             background: 'rgba(7,7,13,0.96)',
             borderLeft: '1px solid rgba(0,180,216,0.18)',
             display: 'flex',
             flexDirection: 'column',
             animation: 'slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)',
+            // iOS safe area: 상단(노치), 하단(홈 바)
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}>
 
             {/* 헤더 */}

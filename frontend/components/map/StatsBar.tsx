@@ -2,6 +2,7 @@
 
 import { useStats } from '@/hooks/useStats'
 import { useLangStore } from '@/lib/langStore'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 function HDivider() {
   return <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', marginInline: -2 }} />
@@ -10,6 +11,10 @@ function HDivider() {
 export default function StatsBar() {
   const { data } = useStats()
   const t = useLangStore((s) => s.t)
+  const isMobile = useIsMobile()
+
+  // 모바일에서는 지도 위에 겹쳐 공간 확보 — 숨김
+  if (isMobile) return null
 
   const LEVELS = [
     { key: '4', label: t.levelCritical, color: '#FF2D2D' },

@@ -34,6 +34,7 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
   const animFrameRef = useRef<number>(0)
   const pathCacheRef = useRef<Map<number, Path2D>>(new Map())
   const lastMouseRef = useRef({ time: 0, x: -999, y: -999 })
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
   // Ref로 threatData를 보관해 drawMap을 안정적(stable)으로 유지
   // → threatData가 바뀌어도 GeoJSON 재요청·setupCanvas 재실행이 발생하지 않음
@@ -265,6 +266,42 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
     }
   }, [getFeatureAtPoint, selectCountry, closePanel])
 
+  // ── 터치 이벤트 (모바일) ───────────────────────────────────────
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    const touch = e.touches[0]
+    if (touch) touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+  }, [])
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    const touch = e.changedTouches[0]
+    const start = touchStartRef.current
+    if (!touch || !start) return
+
+    // 15px 이상 이동 = 스크롤 제스처 → 무시
+    const dx = touch.clientX - start.x
+    const dy = touch.clientY - start.y
+    if (dx * dx + dy * dy > 225) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const x = touch.clientX - rect.left
+    const y = touch.clientY - rect.top
+
+    const feature = getFeatureAtPoint(x, y)
+    if (feature) {
+      const code = getCountryCode(feature.properties)
+      const hasData = !!threatDataRef.current[code]
+      if (code && hasData) {
+        selectCountry(code, String(feature.properties.name || code), touch.clientX, touch.clientY)
+      }
+    } else {
+      closePanel()
+    }
+    touchStartRef.current = null
+  }, [getFeatureAtPoint, selectCountry, closePanel])
+
   return (
     <div ref={containerRef} className="w-full h-full relative bg-black">
       <canvas
@@ -272,7 +309,10 @@ export default function WorldMap({ threatData, dateKey }: WorldMapProps) {
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         className="block w-full h-full"
+        style={{ touchAction: 'none' }}
       />
       <MapTooltip tooltip={tooltip} />
     </div>
