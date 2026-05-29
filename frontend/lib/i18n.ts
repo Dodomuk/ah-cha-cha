@@ -52,6 +52,9 @@ export interface Translations {
   categoryInfrastructure: string
   categoryCloud: string
   categoryKorea: string
+  // Sort
+  sortLatest: string
+  sortByLevel: string
   // Search
   searchTitle: string
   searchPlaceholder: string
@@ -114,6 +117,9 @@ export const translations: Record<Lang, Translations> = {
     categoryCloud: '클라우드',
     categoryKorea: '국내',
 
+    sortLatest: '최신순',
+    sortByLevel: '위험도순',
+
     searchTitle: '기사 검색',
     searchPlaceholder: '키워드 검색...',
     searchNoResults: '검색 결과가 없습니다',
@@ -172,6 +178,9 @@ export const translations: Record<Lang, Translations> = {
     categoryInfrastructure: 'Infrastructure',
     categoryCloud: 'Cloud',
     categoryKorea: 'Korea',
+
+    sortLatest: 'Latest',
+    sortByLevel: 'By Level',
 
     searchTitle: 'Search Articles',
     searchPlaceholder: 'Search keywords...',

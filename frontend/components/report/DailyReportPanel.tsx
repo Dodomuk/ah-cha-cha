@@ -1,12 +1,60 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchLatestNews } from '@/lib/api'
 import { NewsArticle } from '@/types'
 import { useLangStore } from '@/lib/langStore'
 import type { Translations } from '@/lib/i18n'
 import { CATEGORIES, Category, detectCategories, filterByCategories } from '@/lib/categories'
+
+// ── 정렬 ─────────────────────────────────────────────────────────
+
+type SortMode = 'latest' | 'level'
+
+function sortArticles(articles: NewsArticle[], mode: SortMode): NewsArticle[] {
+  return [...articles].sort((a, b) => {
+    if (mode === 'latest') {
+      return new Date(b.collected_at).getTime() - new Date(a.collected_at).getTime()
+    }
+    if (b.threat_level !== a.threat_level) return b.threat_level - a.threat_level
+    return new Date(b.collected_at).getTime() - new Date(a.collected_at).getTime()
+  })
+}
+
+function SortToggle({ mode, onChange, t }: { mode: SortMode; onChange: (m: SortMode) => void; t: Translations }) {
+  const options: { key: SortMode; label: string }[] = [
+    { key: 'latest', label: t.sortLatest },
+    { key: 'level',  label: t.sortByLevel },
+  ]
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {options.map(({ key, label }) => {
+        const active = mode === key
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            style={{
+              padding: '3px 10px',
+              borderRadius: 6,
+              fontSize: 10,
+              fontFamily: 'monospace',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: `1px solid ${active ? 'rgba(0,180,216,0.5)' : 'rgba(255,255,255,0.1)'}`,
+              background: active ? 'rgba(0,180,216,0.12)' : 'transparent',
+              color: active ? '#00B4D8' : 'rgba(255,255,255,0.3)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 const LEVEL_COLOR: Record<number, string> = {
   4: '#FF2D2D',
@@ -124,6 +172,7 @@ export default function DailyReportPanel() {
   const [open, setOpen] = useState(false)
   const [selectedCats, setSelectedCats] = useState<Set<Category>>(new Set())
   const [selectedDate, setSelectedDate] = useState<string>(todayKST)
+  const [sortMode, setSortMode] = useState<SortMode>('latest')
 
   const isToday = selectedDate === todayKST()
 
@@ -145,7 +194,13 @@ export default function DailyReportPanel() {
   const allArticles = data?.articles ?? []
   const t = useLangStore((s) => s.t)
 
-  const articles = filterByCategories(allArticles, selectedCats)
+  const filteredArticles = filterByCategories(allArticles, selectedCats)
+
+  // 정렬 적용 (카테고리 필터 후)
+  const articles = useMemo(
+    () => sortArticles(filteredArticles, sortMode),
+    [filteredArticles, sortMode]
+  )
 
   const catCounts = Object.fromEntries(
     CATEGORIES.map((cat) => [
@@ -449,6 +504,23 @@ export default function DailyReportPanel() {
                 )
               })}
             </div>
+
+            {/* 정렬 토글 */}
+            {allArticles.length > 0 && (
+              <div style={{
+                padding: '8px 20px',
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'rgba(255,255,255,0.25)', marginRight: 2 }}>
+                  ↕
+                </span>
+                <SortToggle mode={sortMode} onChange={setSortMode} t={t} />
+              </div>
+            )}
 
             {/* 기사 목록 (그룹화) */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px' }}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useCountryNews } from '@/hooks/useCountryNews'
 import { THREAT_STROKE, THREAT_CONFIG } from '@/lib/threatColors'
@@ -9,44 +9,101 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import NewsCard from './NewsCard'
 import TrendChart from './TrendChart'
 import { useCountryTrend } from '@/hooks/useCountryTrend'
-import type { CountryNewsResponse } from '@/types'
-import type { TrendResponse } from '@/types'
+import type { CountryNewsResponse, NewsArticle, TrendResponse } from '@/types'
 import type { Translations } from '@/lib/i18n'
 
 const POPUP_W = 520
 const POPUP_MAX_H = 580
 
+// ── 정렬 ────────────────────────────────────────────────────────
+
+type SortMode = 'latest' | 'level'
+
+function sortArticles(articles: NewsArticle[], mode: SortMode): NewsArticle[] {
+  return [...articles].sort((a, b) => {
+    if (mode === 'latest') {
+      return new Date(b.collected_at).getTime() - new Date(a.collected_at).getTime()
+    }
+    // 위험도 내림차순, 동일 시 최신순
+    if (b.threat_level !== a.threat_level) return b.threat_level - a.threat_level
+    return new Date(b.collected_at).getTime() - new Date(a.collected_at).getTime()
+  })
+}
+
+// ── 공통 유틸 ────────────────────────────────────────────────────
+
 function calcPosition(cx: number, cy: number): { left: number; top: number } {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const offset = 20
-
   let left = cx + offset
   if (left + POPUP_W > vw - 16) left = cx - POPUP_W - offset
-
   let top = cy - POPUP_MAX_H / 2
   top = Math.max(60, Math.min(top, vh - POPUP_MAX_H - 16))
-
   return { left, top }
 }
 
 function getFlagEmoji(code: string): string {
-  return code
-    .toUpperCase()
-    .split('')
+  return code.toUpperCase().split('')
     .map(c => String.fromCodePoint(127397 + c.charCodeAt(0)))
     .join('')
 }
 
-// ── 공유 서브컴포넌트 ────────────────────────────────────────────
+// ── 서브컴포넌트: 정렬 토글 ──────────────────────────────────────
+
+function SortToggle({
+  mode,
+  onChange,
+  t,
+}: {
+  mode: SortMode
+  onChange: (m: SortMode) => void
+  t: Translations
+}) {
+  const options: { key: SortMode; label: string }[] = [
+    { key: 'latest', label: t.sortLatest },
+    { key: 'level',  label: t.sortByLevel },
+  ]
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '6px 20px 8px',
+      flexShrink: 0,
+      borderBottom: '1px solid rgba(255,255,255,0.05)',
+    }}>
+      {options.map(({ key, label }) => {
+        const active = mode === key
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            style={{
+              padding: '3px 10px',
+              borderRadius: 6,
+              fontSize: 10,
+              fontFamily: 'monospace',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: `1px solid ${active ? 'rgba(0,180,216,0.5)' : 'rgba(255,255,255,0.1)'}`,
+              background: active ? 'rgba(0,180,216,0.12)' : 'transparent',
+              color: active ? '#00B4D8' : 'rgba(255,255,255,0.3)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── 서브컴포넌트: 헤더 ───────────────────────────────────────────
 
 function PanelHeader({
-  countryCode,
-  countryName,
-  data,
-  color,
-  onClose,
-  t,
+  countryCode, countryName, data, color, onClose, t,
 }: {
   countryCode: string | null
   countryName: string | null
@@ -75,10 +132,9 @@ function PanelHeader({
           </span>
         )}
       </div>
-
       <button
         onClick={onClose}
-        className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all duration-150 active:scale-95"
+        className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full active:scale-95"
         style={{
           background: 'rgba(255,255,255,0.05)',
           border: '1px solid rgba(255,255,255,0.1)',
@@ -92,13 +148,11 @@ function PanelHeader({
   )
 }
 
+// ── 서브컴포넌트: 트렌드 ─────────────────────────────────────────
+
 function PanelTrend({ trendData, t }: { trendData: TrendResponse; t: Translations }) {
   return (
-    <div style={{
-      padding: '12px 20px 10px',
-      flexShrink: 0,
-      borderBottom: '1px solid rgba(255,255,255,0.05)',
-    }}>
+    <div style={{ padding: '12px 20px 10px', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
       <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.06em', marginBottom: 8 }}>
         {t.trendLabel}
       </div>
@@ -107,33 +161,49 @@ function PanelTrend({ trendData, t }: { trendData: TrendResponse; t: Translation
   )
 }
 
+// ── 서브컴포넌트: 뉴스 목록 (정렬 포함) ─────────────────────────
+
 function PanelNewsList({
-  isLoading,
-  data,
-  t,
+  isLoading, data, t,
 }: {
   isLoading: boolean
   data: CountryNewsResponse | undefined
   t: Translations
 }) {
+  const [sortMode, setSortMode] = useState<SortMode>('latest')
+
+  const sortedArticles = useMemo(
+    () => sortArticles(data?.articles ?? [], sortMode),
+    [data?.articles, sortMode]
+  )
+
+  const hasArticles = !isLoading && (data?.articles.length ?? 0) > 0
+
   return (
-    <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: '12px 20px' }}>
-      {isLoading && (
-        <div className="flex items-center justify-center h-32 font-mono text-sm" style={{ color: 'rgba(255,255,255,0.25)' }}>
-          <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>{t.panelLoading}</span>
-        </div>
+    <div className="flex-1 flex flex-col" style={{ minHeight: 0 }}>
+      {/* 정렬 토글 — 기사가 있을 때만 표시 */}
+      {hasArticles && (
+        <SortToggle mode={sortMode} onChange={setSortMode} t={t} />
       )}
-      {!isLoading && data?.articles.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-32 gap-3">
-          <div style={{ fontSize: 28, opacity: 0.3 }}>🛡️</div>
-          <span className="text-[12px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
-            {t.noIssues}
-          </span>
-        </div>
-      )}
-      {!isLoading && data?.articles.map((article, index) => (
-        <NewsCard key={article.id} article={article} cardIndex={index} />
-      ))}
+
+      <div className="flex-1 overflow-y-auto" style={{ padding: '12px 20px' }}>
+        {isLoading && (
+          <div className="flex items-center justify-center h-32 font-mono text-sm" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            <span style={{ animation: 'fadeSlideIn 0.3s ease forwards' }}>{t.panelLoading}</span>
+          </div>
+        )}
+        {!isLoading && sortedArticles.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-32 gap-3">
+            <div style={{ fontSize: 28, opacity: 0.3 }}>🛡️</div>
+            <span className="text-[12px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
+              {t.noIssues}
+            </span>
+          </div>
+        )}
+        {!isLoading && sortedArticles.map((article, index) => (
+          <NewsCard key={article.id} article={article} cardIndex={index} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -161,7 +231,6 @@ export default function CountryPanel() {
 
   const level = data?.threat_level ?? 0
   const color = THREAT_STROKE[level]
-  const config = THREAT_CONFIG[level]
   const hasTrend = !!(trendData && trendData.points.some((p) => p.level > 0))
 
   const sharedContent = (
@@ -185,7 +254,6 @@ export default function CountryPanel() {
   if (isMobile) {
     return (
       <>
-        {/* 딤드 오버레이 */}
         <div
           onClick={closePanel}
           style={{
@@ -195,13 +263,10 @@ export default function CountryPanel() {
             zIndex: 49,
           }}
         />
-        {/* 바텀시트 */}
         <div
           style={{
             position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
+            bottom: 0, left: 0, right: 0,
             height: '74dvh',
             zIndex: 50,
             display: 'flex',
@@ -218,11 +283,9 @@ export default function CountryPanel() {
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}
         >
-          {/* 드래그 핸들 */}
           <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px', flexShrink: 0 }}>
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.18)' }} />
           </div>
-          {/* 상단 컬러 라인 */}
           <div style={{ height: 2, background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)`, flexShrink: 0 }} />
           {sharedContent}
         </div>
@@ -260,7 +323,6 @@ export default function CountryPanel() {
         `,
       }}
     >
-      {/* 상단 컬러 액센트 바 */}
       <div style={{ height: 3, borderRadius: '18px 18px 0 0', background: `linear-gradient(90deg, ${color}00, ${color}, ${color}00)`, flexShrink: 0 }} />
       {sharedContent}
     </div>
