@@ -65,11 +65,11 @@ export async function fetchCountryMarket(code: string): Promise<CountryMarketDet
 }
 
 export async function fetchCountryMovers(code: string): Promise<CountryMovers> {
-  const { data } = await client.get<CountryMovers>(`/api/market/country/${code}/movers`)
+  const { data } = await client.get<CountryMovers>(`/api/market/country/${code}/movers`, { timeout: 40000 })
   return data
 }
 
 export async function fetchStockDetail(ticker: string): Promise<StockDetail> {
-  const { data } = await client.get<StockDetail>(`/api/market/stock/${encodeURIComponent(ticker)}/detail`)
+  const { data } = await client.get<StockDetail>(`/api/market/stock/${encodeURIComponent(ticker)}/detail`, { timeout: 30000 })
   return data
 }

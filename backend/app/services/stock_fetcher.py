@@ -66,6 +66,22 @@ def _highlight(text: str) -> list[dict]:
 
 # ── 무버스 조회 ──────────────────────────────────────────────────────
 
+def _get_ticker_closes(ticker: str) -> tuple[float, float] | None:
+    """단일 티커의 (현재가, 전일종가) 반환. 실패 시 None."""
+    try:
+        t = yf.Ticker(ticker)
+        hist = t.history(period="5d", interval="1d", auto_adjust=True)
+        if hist.empty:
+            return None
+        closes = hist["Close"].dropna()
+        if len(closes) < 2:
+            return None
+        return float(closes.iloc[-1]), float(closes.iloc[-2])
+    except Exception as e:
+        logger.debug(f"_get_ticker_closes({ticker}) failed: {e}")
+        return None
+
+
 def get_country_movers(country_code: str) -> dict:
     cached = _cache_get(_movers_cache, country_code, MOVERS_TTL)
     if cached:
@@ -75,44 +91,15 @@ def get_country_movers(country_code: str) -> dict:
     if not stocks:
         return {"supported": False, "country_code": country_code}
 
-    tickers = [s["ticker"] for s in stocks]
-    ticker_map = {s["ticker"]: s for s in stocks}
-
-    try:
-        raw = yf.download(
-            tickers,
-            period="2d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker",
-            threads=True,
-        )
-    except Exception as e:
-        logger.error(f"yfinance download failed for {country_code}: {e}")
-        return {"supported": True, "error": str(e), "movers": []}
-
     results = []
-    for ticker, info in ticker_map.items():
+    for info in stocks:
+        ticker = info["ticker"]
         try:
-            if len(tickers) == 1:
-                df = raw
-            else:
-                df = raw[ticker] if ticker in raw.columns.get_level_values(0) else None
-
-            if df is None or df.empty:
+            prices = _get_ticker_closes(ticker)
+            if prices is None:
                 continue
-
-            closes = df["Close"].dropna()
-            if len(closes) < 2:
-                continue
-
-            current = float(closes.iloc[-1])
-            prev = float(closes.iloc[-2])
+            current, prev = prices
             change_pct = ((current - prev) / prev * 100) if prev else 0.0
-
-            spread = TICKER_TO_SPREAD.get(ticker)
-            has_spread = spread is not None
 
             results.append({
                 "ticker": ticker,
@@ -123,7 +110,7 @@ def get_country_movers(country_code: str) -> dict:
                 "sector_color": SECTORS.get(info["sector"], {}).get("color", "#555"),
                 "change_pct": round(change_pct, 2),
                 "current_price": round(current, 2),
-                "has_spread": has_spread,
+                "has_spread": ticker in TICKER_TO_SPREAD,
             })
         except Exception as e:
             logger.warning(f"Error processing {ticker}: {e}")
