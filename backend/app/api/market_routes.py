@@ -63,6 +63,23 @@ def get_stock_detail(ticker: str):
     return get_stock_detail(ticker)
 
 
+@router.get("/test/yfinance/{ticker}")
+def test_yfinance(ticker: str):
+    """Render 내부에서 yfinance 테스트 (임시)"""
+    import requests
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        resp = requests.get(url, headers=headers, timeout=5)
+        return {
+            "status_code": resp.status_code,
+            "headers": dict(resp.headers),
+            "body": resp.text[:500]
+        }
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
+
+
 @router.post("/internal/market/fetch")
 def trigger_market_fetch(
     x_internal_key: str = Header(alias="X-Internal-Key"),
