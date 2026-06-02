@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 # ── 인메모리 캐시 ────────────────────────────────────────────────────
 _movers_cache: dict[str, tuple[datetime, dict]] = {}
 _detail_cache: dict[str, tuple[datetime, dict]] = {}
-MOVERS_TTL = timedelta(minutes=15)
-DETAIL_TTL = timedelta(minutes=10)
+MOVERS_TTL = timedelta(minutes=60)  # 1시간 — Rate Limit 방지
+DETAIL_TTL = timedelta(minutes=30)  # 30분 — Rate Limit 방지
 
 
 def _cache_get(cache: dict, key: str, ttl: timedelta):
@@ -67,6 +67,7 @@ def _highlight(text: str) -> list[dict]:
 # ── 무버스 조회 ──────────────────────────────────────────────────────
 
 def get_country_movers(country_code: str) -> dict:
+    # 캐시 우선 반환
     cached = _cache_get(_movers_cache, country_code, MOVERS_TTL)
     if cached:
         return cached
@@ -85,10 +86,20 @@ def get_country_movers(country_code: str) -> dict:
             auto_adjust=True, progress=False, group_by="ticker",
         )
     except Exception as e:
+        # Rate Limit 시 stale cache라도 반환
+        stale = _movers_cache.get(country_code)
+        if stale:
+            logger.warning(f"Returning stale movers cache for {country_code} due to: {e}")
+            return stale[1]
         logger.error(f"Batch download failed for {country_code}: {e}")
         return {"supported": True, "error": str(e), "gainers": [], "losers": [], "all": []}
 
     if raw.empty:
+        # 빈 데이터 → stale cache 확인
+        stale = _movers_cache.get(country_code)
+        if stale:
+            logger.warning(f"Returning stale movers cache for {country_code} (empty download)")
+            return stale[1]
         logger.warning(f"Batch download returned empty data for {country_code}")
         return {"supported": True, "gainers": [], "losers": [], "all": []}
 
