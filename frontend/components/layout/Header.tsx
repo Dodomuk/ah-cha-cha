@@ -9,8 +9,8 @@ interface HeaderProps {
 }
 
 const FLAGS: { lang: Lang; flag: string; label: string }[] = [
-  { lang: 'ko', flag: '🇰🇷', label: '한국어' },
   { lang: 'en', flag: '🇺🇸', label: 'English' },
+  { lang: 'ko', flag: '🇰🇷', label: '한국어' },
 ]
 
 export default function Header({ snapshotAt }: HeaderProps) {

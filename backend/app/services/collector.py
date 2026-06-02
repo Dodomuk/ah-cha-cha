@@ -128,6 +128,9 @@ async def run_summarization_cycle(db: Session) -> dict:
             obj.summary_title = data.get("summary_title")
             obj.summary_what = data.get("summary_what")
             obj.summary_impact = data.get("summary_impact")
+            obj.summary_title_en = data.get("summary_title_en")
+            obj.summary_what_en = data.get("summary_what_en")
+            obj.summary_impact_en = data.get("summary_impact_en")
             obj.threat_level = int(data.get("threat_level", 0))
             obj.country_codes = data.get("country_codes") or []
             obj.attacker_codes = data.get("attacker_codes") or []
@@ -159,6 +162,54 @@ async def run_summarization_cycle(db: Session) -> dict:
 
     _update_threat_snapshot(db)
     return log_entry
+
+
+async def run_retranslation_cycle(db: Session, limit: int = 50) -> dict:
+    """영어 요약이 없는 기존 기사들에 영어 필드를 추가한다."""
+    from sqlalchemy import and_
+
+    pending = db.execute(
+        select(NewsArticle)
+        .where(and_(NewsArticle.ai_processed.is_(True), NewsArticle.summary_title_en.is_(None)))
+        .order_by(NewsArticle.collected_at.desc())
+        .limit(limit)
+    ).scalars().all()
+
+    if not pending:
+        logger.info("No articles need retranslation")
+        return {"retranslated": 0, "remaining": 0}
+
+    logger.info(f"Retranslating {len(pending)} articles...")
+
+    articles_data = [{"url": a.url, "source_title": a.source_title or ""} for a in pending]
+    processed, tokens = await summarize_batch(articles_data)
+
+    updated = 0
+    for data in processed:
+        if not data.get("ai_processed"):
+            continue
+        obj = db.execute(
+            select(NewsArticle).where(NewsArticle.url == data["url"])
+        ).scalar_one_or_none()
+        if obj and data.get("summary_title_en"):
+            obj.summary_title_en = data.get("summary_title_en")
+            obj.summary_what_en = data.get("summary_what_en")
+            obj.summary_impact_en = data.get("summary_impact_en")
+            updated += 1
+
+    db.commit()
+
+    remaining = db.execute(
+        select(func.count()).select_from(NewsArticle)
+        .where(and_(NewsArticle.ai_processed.is_(True), NewsArticle.summary_title_en.is_(None)))
+    ).scalar()
+
+    haiku_input_price = 0.80 / 1_000_000
+    haiku_output_price = 4.00 / 1_000_000
+    cost_usd = (tokens["input"] * haiku_input_price) + (tokens["output"] * haiku_output_price)
+    logger.info(f"Retranslation done: {updated}/{len(pending)}, cost=${cost_usd:.4f}, remaining={remaining}")
+
+    return {"retranslated": updated, "remaining": remaining, "cost_usd": round(cost_usd, 6)}
 
 
 def _update_threat_snapshot(db: Session) -> None:

@@ -382,3 +382,26 @@ async def trigger_summarization(
 
     asyncio.create_task(_run())
     return {"message": f"summarization job accepted", "pending": pending_count}
+
+
+@router.post("/internal/retranslate")
+async def trigger_retranslation(
+    x_internal_key: str = Header(alias="X-Internal-Key"),
+    limit: int = 50,
+):
+    """영어 요약이 없는 기존 기사들에 영어 필드를 추가한다. 50건씩 반복 호출."""
+    if x_internal_key != settings.internal_api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from app.services.collector import run_retranslation_cycle
+    from app.models.database import SessionLocal
+
+    async def _run():
+        db = SessionLocal()
+        try:
+            await run_retranslation_cycle(db, limit=limit)
+        finally:
+            db.close()
+
+    asyncio.create_task(_run())
+    return {"message": "retranslation job accepted", "limit": limit}
