@@ -286,7 +286,13 @@ export default function MarketPanel({
           </div>
         )}
 
-        {!moversLoading && moversData?.supported && (
+        {!moversLoading && moversData?.supported && moversData.all?.length === 0 && (
+          <div style={{ color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', padding: '10px 0' }}>
+            {lang === 'ko' ? '장 마감 중 — 종목 데이터 불러오는 중...' : 'Market closed — loading stock data...'}
+          </div>
+        )}
+
+        {!moversLoading && moversData?.supported && (moversData.all?.length ?? 0) > 0 && (
           <>
             {/* 섹터 요약 텍스트 */}
             {moversData.leading_sector && (
@@ -332,6 +338,7 @@ export default function MarketPanel({
             )}
           </>
         )}
+        {/* supported but empty 닫는 블록 */}
 
         {!moversLoading && moversData && !moversData.supported && (
           <div style={{ color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', padding: '8px 0' }}>

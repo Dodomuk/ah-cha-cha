@@ -69,16 +69,23 @@ def _highlight(text: str) -> list[dict]:
 def _get_ticker_closes(ticker: str) -> tuple[float, float] | None:
     """단일 티커의 (현재가, 전일종가) 반환. 실패 시 None."""
     try:
-        t = yf.Ticker(ticker)
-        hist = t.history(period="5d", interval="1d", auto_adjust=True)
-        if hist.empty:
+        df = yf.download(ticker, period="5d", interval="1d", auto_adjust=True, progress=False)
+        if df is None or df.empty:
+            logger.warning(f"No data returned for {ticker}")
             return None
-        closes = hist["Close"].dropna()
+        # 단일 티커 download: Close 컬럼이 Series 또는 DataFrame일 수 있음
+        close_col = df["Close"]
+        if hasattr(close_col, "iloc"):
+            # DataFrame인 경우 첫 번째 컬럼 선택
+            if hasattr(close_col.iloc[0], "__len__"):
+                close_col = close_col.iloc[:, 0]
+        closes = close_col.dropna()
         if len(closes) < 2:
+            logger.warning(f"Not enough data for {ticker}: {len(closes)} rows")
             return None
         return float(closes.iloc[-1]), float(closes.iloc[-2])
     except Exception as e:
-        logger.debug(f"_get_ticker_closes({ticker}) failed: {e}")
+        logger.warning(f"_get_ticker_closes({ticker}) failed: {e}")
         return None
 
 
