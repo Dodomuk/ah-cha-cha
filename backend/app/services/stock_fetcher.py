@@ -84,7 +84,11 @@ def _finnhub_quote(ticker: str) -> dict | None:
             timeout=10
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not data or "c" not in data:
+            logger.warning(f"Quote API returned empty data for {ticker}: {data}")
+            return None
+        return data
     except Exception as e:
         logger.error(f"Quote API error for {ticker}: {e}")
         return None
@@ -109,7 +113,11 @@ def _finnhub_candle(ticker: str, days: int = 5) -> dict | None:
             timeout=10
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not data or "c" not in data or len(data.get("c", [])) == 0:
+            logger.warning(f"Candle API returned empty/invalid data for {ticker}: {data}")
+            return None
+        return data
     except Exception as e:
         logger.error(f"Candle API error for {ticker}: {e}")
         return None
