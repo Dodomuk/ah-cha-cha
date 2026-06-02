@@ -88,6 +88,10 @@ def get_country_movers(country_code: str) -> dict:
         logger.error(f"Batch download failed for {country_code}: {e}")
         return {"supported": True, "error": str(e), "gainers": [], "losers": [], "all": []}
 
+    if raw.empty:
+        logger.warning(f"Batch download returned empty data for {country_code}")
+        return {"supported": True, "gainers": [], "losers": [], "all": []}
+
     results = []
     for info in stocks:
         ticker = info["ticker"]
@@ -96,14 +100,24 @@ def get_country_movers(country_code: str) -> dict:
             if len(tickers) == 1:
                 df = raw
             else:
-                # group_by="ticker" → raw[ticker] 형태
-                df = raw[ticker] if ticker in raw.columns.get_level_values(0) else None
+                # group_by="ticker" → MultiIndex: (ticker, column)
+                try:
+                    df = raw[ticker]
+                except (KeyError, TypeError):
+                    logger.warning(f"No data returned for {ticker}")
+                    continue
 
             if df is None or df.empty:
-                logger.warning(f"No data returned for {ticker}")
+                logger.warning(f"Empty dataframe for {ticker}")
                 continue
 
-            closes = df["Close"].dropna()
+            # Close 컬럼 추출
+            try:
+                closes = df["Close"].dropna()
+            except KeyError:
+                logger.warning(f"No Close column for {ticker}")
+                continue
+
             if len(closes) < 2:
                 continue
 
@@ -178,6 +192,7 @@ def get_country_movers(country_code: str) -> dict:
 # ── 종목 상세 ────────────────────────────────────────────────────────
 
 def get_stock_detail(ticker: str) -> dict:
+    # 캐시 우선 반환
     cached = _cache_get(_detail_cache, ticker, DETAIL_TTL)
     if cached:
         return cached
@@ -185,6 +200,16 @@ def get_stock_detail(ticker: str) -> dict:
     try:
         t = yf.Ticker(ticker)
         info = t.info or {}
+    except Exception as e:
+        # Rate Limit 에러 시 캐시된 데이터라도 반환 (TTL 무시)
+        stale = _detail_cache.get(ticker)
+        if stale:
+            logger.warning(f"Returning stale cache for {ticker} due to error: {e}")
+            return stale[1]
+        logger.error(f"get_stock_detail failed for {ticker}: {e}")
+        return {"ticker": ticker, "error": str(e)}
+
+    try:
 
         # 30일 가격 이력
         hist = t.history(period="30d", interval="1d", auto_adjust=True)
@@ -254,6 +279,11 @@ def get_stock_detail(ticker: str) -> dict:
         _cache_set(_detail_cache, ticker, data)
         return data
 
-    except Exception as e:
-        logger.error(f"get_stock_detail failed for {ticker}: {e}")
-        return {"ticker": ticker, "error": str(e)}
+    except Exception as inner_e:
+        # 처리 중 에러 — 캐시가 있으면 그것이라도 반환
+        stale = _detail_cache.get(ticker)
+        if stale:
+            logger.warning(f"Returning stale cache for {ticker} due to processing error: {inner_e}")
+            return stale[1]
+        logger.error(f"get_stock_detail processing failed for {ticker}: {inner_e}")
+        return {"ticker": ticker, "error": str(inner_e)}
