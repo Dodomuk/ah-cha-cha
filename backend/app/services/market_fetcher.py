@@ -123,7 +123,20 @@ def fetch_all_markets(db: Session) -> int:
 
 
 def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
-    """최근 30일 종가 이력 반환 (스파크라인용)."""
+    """최근 30일 종가 이력 반환 (DB 우선, 없으면 yfinance — Rate Limit 방지)."""
+    # DB에서 최근 30일 데이터 조회
+    cutoff = date.today() - timedelta(days=30)
+    rows = db.execute(
+        select(MarketHistory)
+        .where(MarketHistory.country_code == country_code)
+        .where(MarketHistory.date >= cutoff)
+        .order_by(MarketHistory.date)
+    ).scalars().all()
+
+    if rows:
+        return [{"date": r.date.strftime("%Y-%m-%d"), "close": r.close} for r in rows]
+
+    # DB에 없으면 yfinance 개별 호출 (마지막 수단)
     cfg = next((m for m in MARKET_CONFIG if m["country_code"] == country_code), None)
     if not cfg:
         return []

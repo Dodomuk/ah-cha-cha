@@ -82,7 +82,7 @@ def get_country_movers(country_code: str) -> dict:
         # 한 번의 배치 다운로드로 Rate Limit 방지
         raw = yf.download(
             tickers, period="5d", interval="1d",
-            auto_adjust=True, progress=False,
+            auto_adjust=True, progress=False, group_by="ticker",
         )
     except Exception as e:
         logger.error(f"Batch download failed for {country_code}: {e}")
@@ -92,12 +92,18 @@ def get_country_movers(country_code: str) -> dict:
     for info in stocks:
         ticker = info["ticker"]
         try:
-            # 단일 티커면 flat columns, 복수면 MultiIndex (Close, ticker)
+            # 단일 티커면 flat columns, 복수면 MultiIndex (ticker, OHLC)
             if len(tickers) == 1:
-                closes = raw["Close"].dropna()
+                df = raw
             else:
-                closes = raw["Close"][ticker].dropna()
+                # group_by="ticker" → raw[ticker] 형태
+                df = raw[ticker] if ticker in raw.columns.get_level_values(0) else None
 
+            if df is None or df.empty:
+                logger.warning(f"No data returned for {ticker}")
+                continue
+
+            closes = df["Close"].dropna()
             if len(closes) < 2:
                 continue
 
