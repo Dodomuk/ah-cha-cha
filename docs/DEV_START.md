@@ -44,21 +44,30 @@ npm run dev
 
 ---
 
-## 4. 뉴스 수집 수동 트리거
+## 4. 증시 데이터 수동 수집
+
+```bash
+curl -s -X POST http://localhost:8000/api/internal/market/fetch \
+  -H "X-Internal-Key: dev-internal-key"
+```
+
+수집 결과 확인:
+```bash
+curl -s http://localhost:8000/api/market/countries | python3 -m json.tool | head -40
+```
+
+---
+
+## 5. 보안 뉴스 수집 수동 트리거 (레거시)
 
 ```bash
 curl -s -X POST http://localhost:8000/api/internal/collect \
   -H "X-Internal-Key: dev-internal-key"
 ```
 
-수집 결과 확인:
-```bash
-curl -s "http://localhost:8000/api/news/latest?min_level=1&limit=5" | python3 -m json.tool
-```
-
 ---
 
-## 5. 종료
+## 6. 종료
 
 ```bash
 # 백엔드: 실행 중인 터미널에서 Ctrl+C
@@ -81,8 +90,8 @@ docker compose down
 
 ---
 
-## 현재 상태 (2026-05-23 기준)
+## 현재 상태 (2026-06-02 기준)
 
-- RSS 수집: 정상 동작 (TheHackerNews, BleepingComputer, KrebsOnSecurity, DarkReading)
-- AI 요약 (Claude Haiku): **API 크래딧 필요** — console.anthropic.com/settings/billing 에서 충전
-- 크래딧 충전 후 수집 트리거하면 위협 레벨 지도 색상 활성화됨
+- **메인 (/)**: 전 세계 증시 대시보드 (yfinance, 15분 수집)
+- **레거시 (/legacy)**: 글로벌 보안 위협 대시보드 (RSS + Claude Haiku)
+- 배포: ahchacha.com (Vercel + Render + Supabase + Cloudflare)

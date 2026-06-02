@@ -1,8 +1,7 @@
 # 아차차 — 시스템 아키텍처
 
-**버전:** 0.4
-**작성일:** 2026-05-21
-**최종 수정:** 2026-05-28
+**버전:** 1.0
+**최종 수정:** 2026-06-02
 
 ---
 
@@ -16,240 +15,162 @@
                         │ REST API (HTTPS)
 ┌───────────────────────▼─────────────────────────────────┐
 │               FastAPI 백엔드 (Render Docker)               │
-│   ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│   │  API Router  │  │  Scheduler   │  │  News Worker  │  │
-│   │ /countries  │  │  APScheduler │  │  RSS 수집     │  │
-│   │ /news       │  │  30분 간격   │  │  Claude 요약  │  │
-│   └─────────────┘  └──────────────┘  └───────────────┘  │
+│   ┌─────────────────┐  ┌──────────────────────────────┐  │
+│   │   API Router     │  │        Scheduler              │  │
+│   │ /market/...     │  │  Market: 15분 간격             │  │
+│   │ /legacy/...     │  │  News: 30분 간격               │  │
+│   └─────────────────┘  └──────────────────────────────┘  │
 └───────────────────────┬─────────────────────────────────┘
                         │
         ┌───────────────┼──────────────────┐
         ▼               ▼                  ▼
 ┌──────────────┐ ┌─────────────┐  ┌──────────────────┐
-│  PostgreSQL  │ │  RSS 피드   │  │  Claude Haiku API │
-│  (Supabase)  │ │  7개 소스   │  │  (뉴스 요약/분류) │
+│  PostgreSQL  │ │  yfinance   │  │  RSS 피드 + Claude │
+│  (Supabase)  │ │  (Yahoo Fi) │  │  (레거시 /legacy) │
 └──────────────┘ └─────────────┘  └──────────────────┘
 ```
 
 ---
 
-## 2. 컴포넌트별 역할
+## 2. 메인 서비스 — 전 세계 증시 대시보드
 
-### 2.1 프론트엔드 (Next.js + Vercel)
-
-| 컴포넌트 | 역할 |
-|----------|------|
-| `WorldMap` | D3.js GeoJSON 파싱 + Canvas 렌더링, 마우스 이벤트, 위협 색상 표시 |
-| `MapTooltip` | 마우스 호버 시 국가명 + 위협 레벨 + delta 배지 툴팁 (글로우모피즘) |
-| `DateRangeFilter` | 오늘/3일/7일 날짜 필터 (좌하단 고정) |
-| `CountryPanel` | 국가 클릭 시 우측 슬라이드 패널 (뉴스 목록 + 7일 트렌드 차트) |
-| `NewsCard` | 뉴스 제목, AI 요약(무슨 일/영향), 원문 링크 카드. 동일 기사 그룹화(+N개 매체) |
-| `DailyReportPanel` | 우하단 플로팅 버튼 + 일일 리포트 사이드 패널, 날짜 선택, .txt 다운로드 |
-| `Header` | 로고, 마지막 갱신 시각 |
-
-**상태 관리:**
-- React Query v5 — 서버 상태 (countries, news). `keepPreviousData`로 날짜 전환 중 이전 지도 유지.
-- Zustand — UI 상태 (선택된 국가, 패널 오픈 여부, `hours` 필터)
-
-**날짜 필터 동작:**
-- Zustand의 `hours` 값이 변경되면 React Query 쿼리 키(`['countries', hours]`)가 바뀌어 새 데이터 요청
-- `keepPreviousData`: 로딩 중 이전 지도 유지 + "지도 갱신 중..." 오버레이 표시
-
-### 2.2 지도 렌더링 파이프라인
+### 2-1. 데이터 흐름
 
 ```
-GeoJSON 데이터 (Natural Earth, /public/data/world.geojson)
-    ↓ 마운트 1회만 로드
-D3.js geoNaturalEarth1 projection 적용
+yfinance.download(tickers, period="5d")
+    ↓ 30개국 지수 일괄 요청
+파싱: 현재값, 전일 종가, 등락률(%), 등락폭
     ↓
-Path2D 캐시 생성 (resize 시 재생성)
+market_snapshots (DB upsert — country_code 기준)
+market_history (일별 OHLCV 누적)
     ↓
-Canvas 2D Context에 국가 경계 path 드로잉
-    ↓
-위협 레벨별 fillStyle + shadowBlur 네온 글로우 효과
-    ↓
-requestAnimationFrame으로 호버 애니메이션 처리
-
-히트 테스트: ctx.isPointInPath (CTM 리셋 후 CSS 픽셀 기준)
-            → geoContains 대비 안티메리디안(러시아/캐나다) 오감지 해결
+GET /api/market/countries → 프론트 지도 렌더링
+GET /api/market/country/{code} → 클릭 패널 + 30일 히스토리
 ```
 
-### 2.3 백엔드 API (FastAPI + Render)
+### 2-2. 수집 스케줄
 
-| 엔드포인트 | 설명 |
-|-----------|------|
-| `GET /api/countries?start=&end=` | 전체 국가 위협 레벨 맵 반환 (날짜 범위 KST, 기본 7일) |
-| `GET /api/countries/{code}/news?start=&end=` | 특정 국가 뉴스 목록 반환 |
-| `GET /api/countries/{code}/trend` | 특정 국가 최근 7일 위협 레벨 추이 |
-| `GET /api/news/latest?date=YYYY-MM-DD` | 지정 날짜(KST 00:00~23:59) 기사 목록 |
-| `GET /api/search?q=` | 키워드로 최근 7일 기사 검색 |
-| `GET /api/stats` | 오늘/7일 수집 통계 (레벨별 건수) |
-| `POST /api/internal/collect` | 수동 수집 트리거 (X-Internal-Key 인증) |
-| `POST /api/internal/summarize` | 미처리 기사 수동 요약 트리거 |
-| `GET /health` | 헬스체크 (GET/HEAD 모두 허용, UptimeRobot 연동) |
+- **15분 간격** (APScheduler IntervalTrigger)
+- yfinance는 API 키 없이 Yahoo Finance 데이터 사용 (무료)
+- 다운로드 1회 호출로 전체 30개 티커 일괄 처리
 
-### 2.4 스케줄러 (APScheduler)
+### 2-3. 시장 운영 시간 판단
 
-- **수집 주기:** `IntervalTrigger(minutes=30)` — 서버 시작 시점부터 30분 간격
-- `TEST_MODE=true`: 수집만 자동 실행, 요약은 수동 트리거 (`POST /api/internal/summarize`)
-- `TEST_MODE=false`: 수집 → Claude 요약 자동 실행
+`market_config.py`에 각 시장별 UTC 기준 open/close 시간 저장.
+현재 UTC 시각과 비교해 `is_open: bool` 결정.
+자정 넘김(예: 호주 23:00~05:00) 처리 포함.
 
-### 2.5 뉴스 수집 파이프라인
+### 2-4. 지도 컬러 스킴
 
-```
-RSS 피드 7개 동시 수집 (limit=200)
-  ┌─ The Hacker News      https://feeds.feedburner.com/TheHackersNews
-  ├─ BleepingComputer     https://www.bleepingcomputer.com/feed/
-  ├─ Krebs on Security    https://krebsonsecurity.com/feed/
-  ├─ Dark Reading         https://www.darkreading.com/rss.xml
-  ├─ AhnLab ASEC (국내)   https://asec.ahnlab.com/ko/feed/
-  ├─ 보안뉴스 (국내)      http://www.boannews.com/media/news_rss.xml
-  └─ 데일리시큐 (국내)    https://www.dailysecu.com/rss/allArticle.xml
-    ↓
-보안 키워드 필터 (제목 기준, 아래 섹션 참고)
-    ↓
-URL 중복 제거 (DB 기존 URL 대조)
-    ↓
-제목 유사도 중복 제거 (Jaccard ≥ 0.5, 신규 수집분 내 중복)
-    ↓
-asyncio.Semaphore(2) 병렬 Claude Haiku API 배치 호출
-(입력: 영문/국문 제목)
-(출력: 한국어 요약, 위협 레벨 0~4, 국가 코드, 공격자/피해국)
-U+FFFD 깨짐 감지 시 자동 재시도 (최대 3회)
-    ↓
-PostgreSQL (news_articles) 저장
-```
-
-**집계 방식:** `country_threat_levels` 캐시 테이블 미사용.
-API 요청 시 `news_articles`에서 직접 집계, 날짜 범위는 KST → UTC 명시 변환 후 비교.
+| 등락률 | 색상 |
+|--------|------|
+| +3% 이상 | 진초록 `rgb(0,255,100)` |
+| +0% ~ +3% | 연초록 (강도 비례) |
+| 데이터 없음 | 회색 `#0e1a1a` |
+| 0% ~ -3% | 연빨강 (강도 비례) |
+| -3% 이하 | 진빨강 `rgb(255,0,0)` |
 
 ---
 
-## 3. 보안 키워드 목록
+## 3. 레거시 서비스 — 보안 인텔리전스 (/legacy)
 
-`backend/app/services/rss.py`의 `SECURITY_KEYWORDS` 세트 기준.
-제목에 아래 키워드 중 하나라도 포함된 기사만 수집.
+`ahchacha.com/legacy`에서 서비스 중. 한국어 전용.
 
-### 3.1 기본 공격/침해 (영문)
-```
-ransomware, malware, breach, hack, hacked, hacking,
-vulnerability, cve, exploit, exploited, phishing,
-ddos, attack, cyber, threat, zero-day, 0-day,
-backdoor, botnet, apt, data leak, data theft,
-supply chain, trojan, spyware, keylogger, rootkit,
-credential, bypass, injection, xss, rce,
-remote code, privilege escalation, lateral movement,
-nation-state, critical infrastructure, industrial control
-```
+### 3-1. RSS 수집 소스 (7개)
 
-### 3.2 추가 공격 기법 (영문)
-```
-wiper, infostealer, stealer, cryptojacking, cryptominer,
-skimmer, bec, smishing, vishing, spear-phishing, spear phishing,
-watering hole, account takeover, credential stuffing,
-dark web, darknet, darkweb, espionage, surveillance,
-scada, ics, ss7
-```
+| 매체 | 분류 |
+|------|------|
+| The Hacker News | 글로벌 |
+| BleepingComputer | 글로벌 |
+| Krebs on Security | 글로벌 |
+| Dark Reading | 글로벌 |
+| ASEC Blog (AhnLab) | 국내 |
+| 보안뉴스 | 국내 |
+| 데일리시큐 | 국내 |
 
-### 3.3 취약점/패치 (영문)
-```
-patch, security update, emergency patch, patch tuesday,
-proof-of-concept, poc exploit, cvss, advisory,
-memory corruption, buffer overflow, use-after-free, ssrf,
-leaked, exposed, compromised, hijacked, infected, stolen
-```
+### 3-2. 키워드 필터 (10개 카테고리)
 
-### 3.4 위협 행위자/그룹 (영문)
-```
-lazarus, kimsuky, andariel, volt typhoon, salt typhoon,
-sandworm, fancy bear, cozy bear, nobelium, charming kitten,
-mustang panda, threat actor, threat group
-```
+ransomware, APT, vulnerability/CVE, data breach, mobile, finance/crypto, infrastructure, cloud, nation-state, Korea
 
-### 3.5 클라우드/설정 오류 (영문)
-```
-s3 bucket, misconfiguration, cloud breach, cloud credentials,
-exposed bucket, azure ad, google cloud
-```
+### 3-3. Claude Haiku 요약
 
-### 3.6 금융/암호화폐 (영문)
-```
-crypto, bitcoin theft, exchange hack, defi exploit,
-wire fraud, bec attack
-```
-
-### 3.7 모바일/플랫폼 (영문)
-```
-android, ios, iphone, ipad, mobile malware, mobile threat,
-mobile security, smartphone,
-apk, google play, play store, malicious app, fake app,
-trojanized app, sideload, testflight,
-zero-click, zero click, pegasus, stalkerware,
-sim swap, sim swapping, sim hijack,
-imsi, stingray, baseband,
-webkit, jailbreak, rooting,
-mdm bypass, clipper malware, banking trojan,
-overlay attack, push bombing, mfa fatigue,
-nfc attack, bluetooth exploit, adware, dropper
-```
-
-### 3.8 국문 기본
-```
-랜섬웨어, 악성코드, 해킹, 해커, 취약점, 침해,
-피싱, 사이버, 보안, 위협, 공격, 유출, 침투,
-백도어, 봇넷, 스파이웨어, 크리덴셜, 정보탈취,
-디도스, 제로데이, 원격코드실행, 권한상승, 공급망, 국가배후, 기반시설
-```
-
-### 3.9 국문 추가
-```
-스미싱, 보이스피싱, 큐싱, 스피어피싱,
-개인정보, 정보유출, 계정탈취, 탈취,
-다크웹, 사칭, 암호화폐, 가상자산, 내부자,
-패치, 보안패치, 긴급패치
-```
-
-### 3.10 국문 모바일
-```
-모바일, 스마트폰, 악성앱, 문자사기,
-심스와핑, 소액결제 사기, 원격제어앱,
-페가수스, 앱스토어 악성, 구글플레이 악성
-```
+- 모델: `claude-haiku-4-5-20251001`
+- 출력: 한국어 제목/사건개요/피해영향 + 위협레벨(0~4) + 국가코드
+- 동시 처리: Semaphore(2)
+- U+FFFD 버그 대응: 최대 3회 재시도
 
 ---
 
-## 4. 배포 구성
+## 4. 인프라
 
-| 서비스 | 플랫폼 | 비고 |
-|--------|--------|------|
-| 프론트엔드 | Vercel | Git push 자동 배포 |
-| 백엔드 + 스케줄러 | Render | Docker 컨테이너, 자동 배포 |
-| 데이터베이스 | Supabase (PostgreSQL) | 무료 티어, Session Pooler (IPv4) |
-| 환경변수 | Render / Vercel 대시보드 | `.env` 로컬 전용 |
-| 헬스모니터 | UptimeRobot | `HEAD /health` 5분 간격 |
+| 구성요소 | 서비스 | 비용 |
+|----------|--------|------|
+| 프론트엔드 | Vercel (Next.js App Router) | 무료 |
+| 백엔드 | Render (Docker, 단일 컨테이너) | 무료 |
+| DB | Supabase (PostgreSQL) | 무료 |
+| DNS/CDN | Cloudflare | 무료 |
+| 도메인 | 가비아 (ahchacha.com) | 유료 |
 
-**Supabase 연결:** Session Pooler (port 5432) 사용 — Render 무료 티어는 IPv6 미지원이므로 IPv4 호환 방식 필수.
+### DNS 구성
 
----
-
-## 5. 환경변수 목록
-
-```
-# 백엔드 (Render)
-DATABASE_URL=postgresql://postgres:...@...supabase.com:5432/postgres
-CLAUDE_API_KEY=sk-ant-...
-INTERNAL_API_KEY=...
-TEST_MODE=false          # true 시 Claude 요약 자동 실행 안 함
-
-# 프론트엔드 (Vercel)
-NEXT_PUBLIC_API_BASE_URL=https://ah-cha-cha.onrender.com
-```
+| 레코드 | 값 |
+|--------|-----|
+| `ahchacha.com` | Vercel (CNAME flattening) |
+| `www.ahchacha.com` | Vercel (redirect) |
+| `api.ahchacha.com` | Render (CNAME) |
 
 ---
 
-## 6. 보안 고려사항
+## 5. API 엔드포인트 목록
 
-- Claude API 키, DB URL 등 모든 시크릿은 환경변수로만 관리 (`.env` 미커밋)
-- 내부 수집·요약 엔드포인트 (`/api/internal/*`)는 `X-Internal-Key` 헤더 인증
-- CORS: 프론트엔드 도메인만 허용
-- Vercel 개발 툴바 비활성화 (`frontend/vercel.json`)
+### 증시 (메인)
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/market/countries` | 전체 국가 스냅샷 (지도용) |
+| GET | `/api/market/country/{code}` | 특정 국가 상세 + 30일 이력 |
+| POST | `/api/internal/market/fetch` | 수동 수집 트리거 |
+
+### 보안 (레거시)
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/countries` | 국가별 위협 레벨 스냅샷 |
+| GET | `/api/countries/{code}/news` | 특정 국가 보안 기사 |
+| GET | `/api/news/latest` | 최신 보안 기사 목록 |
+| GET | `/api/stats` | 수집 통계 |
+| POST | `/api/internal/collect` | RSS 수집 트리거 |
+| POST | `/api/internal/summarize` | AI 요약 트리거 |
+
+---
+
+## 6. DB 스키마 요약
+
+### market_snapshots
+국가별 최신 지수 스냅샷 (upsert, country_code unique)
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| country_code | String(2) | ISO 3166-1 alpha-2 |
+| index_name | String | 영문 지수명 |
+| index_name_ko | String | 한국어 지수명 |
+| ticker | String | yfinance 티커 |
+| current_value | Float | 현재값 |
+| prev_close | Float | 전일 종가 |
+| change_pct | Float | 등락률(%) |
+| change_abs | Float | 절대 등락 |
+| is_open | Boolean | 장 운영 중 여부 |
+| updated_at | DateTime | 마지막 갱신 시각 |
+
+### market_history
+일별 OHLCV (스파크라인용)
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| country_code | String(2) | |
+| date | Date | 날짜 |
+| open/high/low/close | Float | OHLC |
+| volume | Float | 거래량 |
+
+### news_articles (레거시)
+보안 기사 저장. 자세한 스키마는 `db-schema.md` 참조.

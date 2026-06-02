@@ -16,17 +16,17 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: '아차차 — 아는 순간 차이 나는 차세대 보안 인텔리전스',
-  description: '전 세계 사이버 보안 위협을 실시간으로 시각화하는 인터랙티브 지도 서비스. 매일 수집되는 글로벌 보안 뉴스를 AI가 요약하고 국가별 위협 수준을 지도로 표시합니다.',
-  keywords: ['사이버 보안', '보안 위협', '보안 인텔리전스', '글로벌 보안', '해킹', '랜섬웨어', '취약점', 'security intelligence', 'cyber threat', 'world map'],
+  title: '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시',
+  description: '전 세계 30개국 주요 증시 등락률을 실시간 세계 지도로 시각화. S&P500, 나스닥, 코스피, 닛케이 등 주요 지수를 한눈에 확인하세요.',
+  keywords: ['주식', '증시', '세계 증시', 'S&P500', '나스닥', '코스피', '닛케이', 'DAX', '주가 지수', 'stock market', 'world markets', 'market dashboard'],
   authors: [{ name: '아차차' }],
   metadataBase: new URL('https://ahchacha.com'),
   alternates: {
     canonical: 'https://ahchacha.com',
   },
   openGraph: {
-    title: '아차차 — 글로벌 사이버 보안 위협 지도',
-    description: '전 세계 사이버 보안 위협을 실시간으로 시각화. AI가 요약한 글로벌 보안 뉴스를 한눈에.',
+    title: '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시',
+    description: '전 세계 30개국 주요 증시를 실시간 세계 지도로. 오늘 어느 나라 주식이 오르고 내렸는지 바로 확인.',
     url: 'https://ahchacha.com',
     siteName: '아차차',
     locale: 'ko_KR',
@@ -34,8 +34,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: '아차차 — 글로벌 사이버 보안 위협 지도',
-    description: '전 세계 사이버 보안 위협을 실시간으로 시각화. AI가 요약한 글로벌 보안 뉴스를 한눈에.',
+    title: '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시',
+    description: '전 세계 30개국 주요 증시를 실시간 세계 지도로. 오늘 어느 나라 주식이 오르고 내렸는지 바로 확인.',
   },
   manifest: '/manifest.json',
   appleWebApp: {
