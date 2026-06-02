@@ -6,19 +6,19 @@
 전 세계 사이버 보안 위협을 실시간으로 시각화하는 인터랙티브 세계 지도 서비스.
 매일 수집되는 보안 뉴스를 AI가 한국어로 요약하고, 국가별 위협 수준을 지도에 색깔로 표시한다.
 
-**라이브 서비스:** https://ah-cha-cha.vercel.app
+**라이브 서비스:** https://ahchacha.com
 
 ---
 
 ## 어떻게 동작하는가
 
 ```
-[RSS 피드 4종]
-    ↓ 매일 06:00 KST 자동 수집
+[RSS 피드 7종]
+    ↓ 30분 주기 자동 수집
 [백엔드 스케줄러 (APScheduler)]
     ↓ 중복 제거 후 신규 기사 저장
 [PostgreSQL (Supabase)]
-    ↓ Claude Haiku API 요약 요청 (동시 3건)
+    ↓ Claude Haiku API 요약 요청 (동시 2건)
 [Claude Haiku API]
     ↓ 한국어 요약 + 위협 레벨(0~4) + 국가 코드 반환
 [PostgreSQL]
@@ -34,7 +34,7 @@
 
 ### 수집 (RSS)
 
-4개의 보안 전문 매체 RSS를 매일 06:00 KST에 자동 수집한다.
+7개의 보안 전문 매체 RSS를 30분 주기로 자동 수집한다.
 
 | 매체 | 도메인 |
 |------|--------|
@@ -42,6 +42,9 @@
 | BleepingComputer | bleepingcomputer.com |
 | Krebs on Security | krebsonsecurity.com |
 | Dark Reading | darkreading.com |
+| ASEC Blog (AhnLab) | asec.ahnlab.com |
+| 보안뉴스 | boannews.com |
+| 데일리시큐 | dailysecu.com |
 
 ### AI 요약 (Claude Haiku)
 
@@ -71,7 +74,9 @@
 - D3.js(`geoNaturalEarth1`)로 GeoJSON 투영, HTML Canvas로 렌더링
 - 위협 레벨에 따라 국가를 빨강/주황/노랑/연두/회색으로 채색
 - 데이터 없는 국가는 클릭 비활성화
-- 국가 클릭 시 글래스모피즘 팝업으로 AI 요약 기사 목록 표시
+- 국가 클릭 시 글래스모피즘 팝업으로 AI 요약 기사 목록 표시 (최신순/위험도순 정렬)
+- 모바일: 바텀시트 UI, 터치 이벤트 지원
+- PWA 지원 (홈 화면 추가, 오프라인 설치 가능)
 
 ---
 
@@ -168,6 +173,7 @@ curl -X POST http://localhost:8000/api/internal/summarize \
 | Vercel | 프론트엔드 | 무료 |
 | Render | 백엔드 (Docker) | 무료 |
 | Supabase | PostgreSQL | 무료 |
+| Cloudflare | DNS / CDN / SSL | 무료 |
 
 ### 환경 변수
 
@@ -184,7 +190,7 @@ curl -X POST http://localhost:8000/api/internal/summarize \
 
 | Key | 설명 |
 |-----|------|
-| `NEXT_PUBLIC_API_BASE_URL` | Render 서비스 URL |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://api.ahchacha.com` |
 
 ### Render 슬립 방지 (무료 플랜)
 
