@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchMarkets, fetchCountryMarket } from '@/lib/api'
+import { fetchMarkets, fetchCountryMarket, fetchCountryMovers, fetchStockDetail } from '@/lib/api'
 
 export function useMarkets() {
   return useQuery({
@@ -16,5 +16,23 @@ export function useCountryMarket(code: string | null) {
     queryFn: () => fetchCountryMarket(code!),
     enabled: !!code,
     staleTime: 30 * 1000,
+  })
+}
+
+export function useCountryMovers(code: string | null) {
+  return useQuery({
+    queryKey: ['movers', code],
+    queryFn: () => fetchCountryMovers(code!),
+    enabled: !!code,
+    staleTime: 15 * 60 * 1000,
+  })
+}
+
+export function useStockDetail(ticker: string | null) {
+  return useQuery({
+    queryKey: ['stock', ticker],
+    queryFn: () => fetchStockDetail(ticker!),
+    enabled: !!ticker,
+    staleTime: 10 * 60 * 1000,
   })
 }

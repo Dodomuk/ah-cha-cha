@@ -5,6 +5,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { useMarkets } from '@/hooks/useMarketData'
 import { useLangStore } from '@/lib/langStore'
 import MarketPanel from '@/components/market/MarketPanel'
+import StockDetailPanel from '@/components/market/StockDetailPanel'
+import GlobalSpreadOverlay from '@/components/market/GlobalSpreadOverlay'
 import Link from 'next/link'
 
 const MarketWorldMap = dynamic(() => import('@/components/market/MarketWorldMap'), { ssr: false })
@@ -28,19 +30,47 @@ export default function HomePage() {
       : 'Ah-Cha-Cha — World Markets at a Glance'
   }, [lang])
 
+  // ── 국가 패널 ──────────────────────────────────────────────────
   const [panelOpen, setPanelOpen] = useState(false)
   const [selectedCode, setSelectedCode] = useState<string | null>(null)
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [clickPos, setClickPos] = useState<{ x: number; y: number } | null>(null)
+
+  // ── 종목 상세 패널 ─────────────────────────────────────────────
+  const [stockTicker, setStockTicker] = useState<string | null>(null)
+  const [stockPanelOpen, setStockPanelOpen] = useState(false)
+
+  // ── 글로벌 스프레드 오버레이 ───────────────────────────────────
+  const [spreadTicker, setSpreadTicker] = useState<string | null>(null)
+  const [spreadOrigin, setSpreadOrigin] = useState<string | null>(null)
+  const [spreadOpen, setSpreadOpen] = useState(false)
 
   const handleCountryClick = useCallback((code: string, name: string, x: number, y: number) => {
     setSelectedCode(code)
     setSelectedName(name)
     setClickPos({ x, y })
     setPanelOpen(true)
+    setStockPanelOpen(false)
+    setSpreadOpen(false)
   }, [])
 
-  const handleClose = useCallback(() => setPanelOpen(false), [])
+  const handleCloseCountry = useCallback(() => setPanelOpen(false), [])
+
+  const handleSelectStock = useCallback((ticker: string) => {
+    setStockTicker(ticker)
+    setStockPanelOpen(true)
+    setSpreadOpen(false)
+  }, [])
+
+  const handleCloseStock = useCallback(() => setStockPanelOpen(false), [])
+
+  const handleShowSpread = useCallback((ticker: string) => {
+    setSpreadTicker(ticker)
+    setSpreadOrigin(selectedCode)
+    setSpreadOpen(true)
+  }, [selectedCode])
+
+  const handleCloseSpread = useCallback(() => setSpreadOpen(false), [])
 
   const markets = data?.markets ?? {}
   const updatedAt = fmtTime(data?.updated_at, lang === 'ko' ? 'ko-KR' : 'en-US')
@@ -122,18 +152,35 @@ export default function HomePage() {
             </span>
           </div>
         ) : (
-          <MarketWorldMap
+          <MarketWorldMap markets={markets} onCountryClick={handleCountryClick} />
+        )}
+
+        {/* 글로벌 스프레드 오버레이 (지도 위) */}
+        {spreadOpen && spreadTicker && spreadOrigin && (
+          <GlobalSpreadOverlay
+            ticker={spreadTicker}
             markets={markets}
-            onCountryClick={handleCountryClick}
+            originCode={spreadOrigin}
+            onClose={handleCloseSpread}
           />
         )}
 
+        {/* 국가 패널 */}
         <MarketPanel
           countryCode={selectedCode}
           countryName={selectedName}
           clickPosition={clickPos}
-          onClose={handleClose}
-          isOpen={panelOpen}
+          onClose={handleCloseCountry}
+          isOpen={panelOpen && !spreadOpen}
+          onSelectStock={handleSelectStock}
+        />
+
+        {/* 종목 상세 패널 */}
+        <StockDetailPanel
+          ticker={stockTicker}
+          onClose={handleCloseStock}
+          onShowSpread={handleShowSpread}
+          isOpen={stockPanelOpen && !spreadOpen}
         />
       </div>
     </div>

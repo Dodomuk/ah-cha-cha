@@ -102,3 +102,90 @@ export interface MarketTooltipState {
   changePct: number | null
   isOpen: boolean
 }
+
+// ── 종목 무버스 ──────────────────────────────────────────────────────
+
+export interface StockMover {
+  ticker: string
+  name: string
+  name_ko: string
+  sector: string
+  sector_ko: string
+  sector_color: string
+  change_pct: number
+  current_price: number
+  has_spread: boolean
+}
+
+export interface CountryMovers {
+  supported: boolean
+  country_code: string
+  leading_sector: string | null
+  leading_sector_ko: string | null
+  leading_sector_color: string
+  leading_avg_pct: number
+  direction: 'up' | 'down'
+  summary_ko: string
+  summary_en: string
+  gainers: StockMover[]
+  losers: StockMover[]
+  all: StockMover[]
+  error?: string
+}
+
+// ── 종목 상세 ────────────────────────────────────────────────────────
+
+export interface NewsSegment {
+  text: string
+  highlight: boolean
+}
+
+export interface StockNews {
+  title: string
+  segments: NewsSegment[]
+  link: string
+  publisher: string
+  published_at: number
+}
+
+export interface OHLCPoint {
+  date: string
+  close: number | null
+  open: number | null
+  high: number | null
+  low: number | null
+  volume: number | null
+}
+
+export interface SpreadAffected {
+  country: string
+  reason_ko: string
+  reason_en: string
+}
+
+export interface GlobalSpread {
+  desc_ko: string
+  desc_en: string
+  affected: SpreadAffected[]
+}
+
+export interface StockDetail {
+  ticker: string
+  name: string
+  sector: string
+  industry: string
+  current_price: number | null
+  change_pct: number | null
+  market_cap: number | null
+  pe_ratio: number | null
+  forward_pe: number | null
+  '52w_high': number | null
+  '52w_low': number | null
+  avg_volume: number | null
+  dividend_yield: number | null
+  beta: number | null
+  history: OHLCPoint[]
+  news: StockNews[]
+  spread: GlobalSpread | null
+  error?: string
+}
