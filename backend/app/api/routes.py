@@ -393,6 +393,7 @@ async def trigger_retranslation(
     if x_internal_key != settings.internal_api_key:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    import asyncio
     from app.services.collector import run_retranslation_cycle
     from app.models.database import SessionLocal
 
