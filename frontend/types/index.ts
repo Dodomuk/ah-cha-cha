@@ -63,3 +63,42 @@ export interface SearchResponse {
   articles: NewsArticle[]
   query: string
 }
+
+// ── 증시 ────────────────────────────────────────────────────────────
+
+export interface MarketSnapshot {
+  country_code: string
+  index_name: string
+  index_name_ko: string
+  ticker: string
+  current_value: number | null
+  prev_close: number | null
+  change_pct: number | null
+  change_abs: number | null
+  is_open: boolean
+  updated_at: string
+}
+
+export interface MarketsResponse {
+  markets: Record<string, MarketSnapshot>
+  updated_at: string
+}
+
+export interface HistoryPoint {
+  date: string
+  close: number | null
+}
+
+export interface CountryMarketDetail {
+  snapshot: MarketSnapshot
+  history: HistoryPoint[]
+}
+
+export interface MarketTooltipState {
+  visible: boolean
+  x: number
+  y: number
+  countryName: string
+  changePct: number | null
+  isOpen: boolean
+}

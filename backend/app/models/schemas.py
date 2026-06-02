@@ -63,3 +63,35 @@ class TrendResponse(BaseModel):
 class SearchResponse(BaseModel):
     articles: list[NewsArticleOut]
     query: str
+
+
+# ── 증시 ────────────────────────────────────────────────────────────
+
+class MarketSnapshotOut(BaseModel):
+    country_code: str
+    index_name: str
+    index_name_ko: str
+    ticker: str
+    current_value: float | None
+    prev_close: float | None
+    change_pct: float | None
+    change_abs: float | None
+    is_open: bool
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MarketsResponse(BaseModel):
+    markets: dict[str, MarketSnapshotOut]   # country_code → snapshot
+    updated_at: datetime
+
+
+class HistoryPoint(BaseModel):
+    date: str       # YYYY-MM-DD
+    close: float | None
+
+
+class CountryMarketDetail(BaseModel):
+    snapshot: MarketSnapshotOut
+    history: list[HistoryPoint]  # 최근 30일

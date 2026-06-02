@@ -1,0 +1,156 @@
+"""yfinance를 이용해 전 세계 주요 지수 데이터를 수집한다."""
+
+import logging
+from datetime import datetime, timezone, date, timedelta
+
+import yfinance as yf
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+
+from app.models.market import MarketSnapshot, MarketHistory
+from app.services.market_config import MARKET_CONFIG
+
+logger = logging.getLogger(__name__)
+
+
+def _is_market_open(open_utc: str, close_utc: str) -> bool:
+    """UTC 기준 현재 시각이 장 운영 시간 내인지 판단 (자정 넘김 처리 포함)."""
+    now = datetime.now(timezone.utc).time()
+    o_h, o_m = map(int, open_utc.split(":"))
+    c_h, c_m = map(int, close_utc.split(":"))
+    open_t = datetime.min.replace(hour=o_h, minute=o_m).time()
+    close_t = datetime.min.replace(hour=c_h, minute=c_m).time()
+
+    if open_t < close_t:
+        return open_t <= now <= close_t
+    # 자정 넘김 (예: 23:00 ~ 05:00)
+    return now >= open_t or now <= close_t
+
+
+def fetch_all_markets(db: Session) -> int:
+    """모든 시장 데이터를 yfinance로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
+    tickers = [m["ticker"] for m in MARKET_CONFIG]
+
+    try:
+        # 한 번의 download 호출로 모든 티커 처리 (rate limit 최소화)
+        raw = yf.download(
+            tickers,
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+    except Exception as e:
+        logger.error(f"yfinance download failed: {e}")
+        return 0
+
+    updated = 0
+    now = datetime.now(timezone.utc)
+
+    for cfg in MARKET_CONFIG:
+        ticker = cfg["ticker"]
+        code = cfg["country_code"]
+        try:
+            # 멀티 티커 응답 구조: raw[ticker]["Close"] 등
+            if len(tickers) == 1:
+                df = raw
+            else:
+                df = raw[ticker] if ticker in raw.columns.get_level_values(0) else None
+
+            if df is None or df.empty:
+                logger.warning(f"No data for {ticker} ({code})")
+                continue
+
+            closes = df["Close"].dropna()
+            if len(closes) < 2:
+                continue
+
+            current = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2])
+            change_abs = current - prev
+            change_pct = (change_abs / prev) * 100 if prev else 0.0
+            is_open = _is_market_open(cfg["open_utc"], cfg["close_utc"])
+
+            # upsert market_snapshots
+            obj = db.execute(
+                select(MarketSnapshot).where(MarketSnapshot.country_code == code)
+            ).scalar_one_or_none()
+
+            if obj is None:
+                obj = MarketSnapshot(country_code=code)
+                db.add(obj)
+
+            obj.index_name = cfg["index_name"]
+            obj.index_name_ko = cfg["index_name_ko"]
+            obj.ticker = ticker
+            obj.current_value = current
+            obj.prev_close = prev
+            obj.change_pct = round(change_pct, 4)
+            obj.change_abs = round(change_abs, 4)
+            obj.is_open = is_open
+            obj.updated_at = now
+
+            # market_history upsert (최근 5일치)
+            for ts, close_val in closes.items():
+                d = ts.date() if hasattr(ts, "date") else ts
+                existing = db.execute(
+                    select(MarketHistory).where(
+                        MarketHistory.country_code == code,
+                        MarketHistory.date == d,
+                    )
+                ).scalar_one_or_none()
+                if existing is None:
+                    row = df.loc[ts]
+                    db.add(MarketHistory(
+                        country_code=code,
+                        date=d,
+                        open=float(row["Open"]) if "Open" in row else None,
+                        high=float(row["High"]) if "High" in row else None,
+                        low=float(row["Low"]) if "Low" in row else None,
+                        close=float(close_val),
+                        volume=float(row["Volume"]) if "Volume" in row else None,
+                    ))
+
+            updated += 1
+
+        except Exception as e:
+            logger.error(f"Error processing {ticker} ({code}): {e}")
+            continue
+
+    db.commit()
+    logger.info(f"Market fetch complete: {updated}/{len(MARKET_CONFIG)} markets updated")
+    return updated
+
+
+def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
+    """최근 30일 종가 이력 반환 (스파크라인용)."""
+    cfg = next((m for m in MARKET_CONFIG if m["country_code"] == country_code), None)
+    if not cfg:
+        return []
+
+    try:
+        df = yf.download(
+            cfg["ticker"],
+            period="30d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+        if df.empty:
+            return []
+
+        result = []
+        for ts, row in df.iterrows():
+            close_val = row["Close"]
+            if hasattr(close_val, "item"):
+                close_val = close_val.item()
+            result.append({
+                "date": ts.strftime("%Y-%m-%d"),
+                "close": round(float(close_val), 4) if close_val == close_val else None,
+            })
+        return result
+    except Exception as e:
+        logger.error(f"fetch_history_30d failed for {country_code}: {e}")
+        return []

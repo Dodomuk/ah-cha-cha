@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { CountriesResponse, CountryNewsResponse, LatestNewsResponse, TrendResponse, SearchResponse } from '@/types'
+import { CountriesResponse, CountryNewsResponse, LatestNewsResponse, TrendResponse, SearchResponse, MarketsResponse, CountryMarketDetail } from '@/types'
 
 const client = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000',
@@ -51,5 +51,15 @@ export async function fetchLatestNews(limit = 100, date?: string): Promise<Lates
   const { data } = await client.get<LatestNewsResponse>('/api/news/latest', {
     params: { limit, min_level: 1, ...(date ? { date } : {}) },
   })
+  return data
+}
+
+export async function fetchMarkets(): Promise<MarketsResponse> {
+  const { data } = await client.get<MarketsResponse>('/api/market/countries')
+  return data
+}
+
+export async function fetchCountryMarket(code: string): Promise<CountryMarketDetail> {
+  const { data } = await client.get<CountryMarketDetail>(`/api/market/country/${code}`)
   return data
 }
