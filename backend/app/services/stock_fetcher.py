@@ -66,29 +66,6 @@ def _highlight(text: str) -> list[dict]:
 
 # ── 무버스 조회 ──────────────────────────────────────────────────────
 
-def _get_ticker_closes(ticker: str) -> tuple[float, float] | None:
-    """단일 티커의 (현재가, 전일종가) 반환. 실패 시 None."""
-    try:
-        df = yf.download(ticker, period="5d", interval="1d", auto_adjust=True, progress=False)
-        if df is None or df.empty:
-            logger.warning(f"No data returned for {ticker}")
-            return None
-        # 단일 티커 download: Close 컬럼이 Series 또는 DataFrame일 수 있음
-        close_col = df["Close"]
-        if hasattr(close_col, "iloc"):
-            # DataFrame인 경우 첫 번째 컬럼 선택
-            if hasattr(close_col.iloc[0], "__len__"):
-                close_col = close_col.iloc[:, 0]
-        closes = close_col.dropna()
-        if len(closes) < 2:
-            logger.warning(f"Not enough data for {ticker}: {len(closes)} rows")
-            return None
-        return float(closes.iloc[-1]), float(closes.iloc[-2])
-    except Exception as e:
-        logger.warning(f"_get_ticker_closes({ticker}) failed: {e}")
-        return None
-
-
 def get_country_movers(country_code: str) -> dict:
     cached = _cache_get(_movers_cache, country_code, MOVERS_TTL)
     if cached:
@@ -98,14 +75,34 @@ def get_country_movers(country_code: str) -> dict:
     if not stocks:
         return {"supported": False, "country_code": country_code}
 
+    tickers = [s["ticker"] for s in stocks]
+    ticker_map = {s["ticker"]: s for s in stocks}
+
+    try:
+        # 한 번의 배치 다운로드로 Rate Limit 방지
+        raw = yf.download(
+            tickers, period="5d", interval="1d",
+            auto_adjust=True, progress=False,
+        )
+    except Exception as e:
+        logger.error(f"Batch download failed for {country_code}: {e}")
+        return {"supported": True, "error": str(e), "gainers": [], "losers": [], "all": []}
+
     results = []
     for info in stocks:
         ticker = info["ticker"]
         try:
-            prices = _get_ticker_closes(ticker)
-            if prices is None:
+            # 단일 티커면 flat columns, 복수면 MultiIndex (Close, ticker)
+            if len(tickers) == 1:
+                closes = raw["Close"].dropna()
+            else:
+                closes = raw["Close"][ticker].dropna()
+
+            if len(closes) < 2:
                 continue
-            current, prev = prices
+
+            current = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2])
             change_pct = ((current - prev) / prev * 100) if prev else 0.0
 
             results.append({
