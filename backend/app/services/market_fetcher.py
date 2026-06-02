@@ -1,6 +1,7 @@
-"""Finnhub을 이용해 전 세계 주요 지수 데이터를 수집한다."""
+"""Alpha Vantage을 이용해 전 세계 주요 지수 데이터를 수집한다."""
 
 import logging
+import time
 from datetime import datetime, timezone, date, timedelta
 
 import requests
@@ -14,7 +15,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-FINNHUB_BASE = "https://finnhub.io/api/v1"
+ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query"
 
 
 def _is_market_open(open_utc: str, close_utc: str) -> bool:
@@ -27,37 +28,50 @@ def _is_market_open(open_utc: str, close_utc: str) -> bool:
 
     if open_t < close_t:
         return open_t <= now <= close_t
-    # 자정 넘김 (예: 23:00 ~ 05:00)
     return now >= open_t or now <= close_t
 
 
-def _finnhub_candle(ticker: str, days: int = 5) -> dict | None:
-    """Finnhub 일봉 데이터"""
+def _alpha_vantage_timeseries(ticker: str, days: int = 5) -> dict | None:
+    """Alpha Vantage 일봉 데이터"""
     try:
-        now = datetime.now(timezone.utc)
-        to_ts = int(now.timestamp())
-        from_ts = int((now - timedelta(days=days)).timestamp())
-
         resp = requests.get(
-            f"{FINNHUB_BASE}/stock/candle",
+            ALPHA_VANTAGE_BASE,
             params={
+                "function": "TIME_SERIES_DAILY",
                 "symbol": ticker,
-                "resolution": "D",
-                "from": from_ts,
-                "to": to_ts,
-                "token": settings.finnhub_api_key,
+                "outputsize": "full",
+                "apikey": settings.alpha_vantage_api_key,
             },
             timeout=10
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        ts = data.get("Time Series", {})
+
+        if not ts:
+            logger.warning(f"TimeSeries API returned empty data for {ticker}: {data}")
+            return None
+
+        # 최근 N일의 데이터만 반환
+        sorted_dates = sorted(ts.keys(), reverse=True)[:days]
+        result = {}
+        for date_str in sorted_dates:
+            result[date_str] = {
+                "open": float(ts[date_str].get("1. open", 0)),
+                "high": float(ts[date_str].get("2. high", 0)),
+                "low": float(ts[date_str].get("3. low", 0)),
+                "close": float(ts[date_str].get("4. close", 0)),
+                "volume": int(ts[date_str].get("5. volume", 0) or 0),
+            }
+
+        return result if result else None
     except Exception as e:
-        logger.error(f"Candle API error for {ticker}: {e}")
+        logger.error(f"TimeSeries API error for {ticker}: {e}")
         return None
 
 
 def fetch_all_markets(db: Session) -> int:
-    """모든 시장 데이터를 Finnhub으로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
+    """모든 시장 데이터를 Alpha Vantage으로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
     updated = 0
     now = datetime.now(timezone.utc)
 
@@ -65,19 +79,20 @@ def fetch_all_markets(db: Session) -> int:
         ticker = cfg["ticker"]
         code = cfg["country_code"]
         try:
-            candle = _finnhub_candle(ticker, days=5)
-            if not candle or "c" not in candle or len(candle["c"]) < 2:
-                logger.warning(f"Not enough candle data for {ticker} ({code})")
+            ts = _alpha_vantage_timeseries(ticker, days=5)
+            if not ts or len(ts) < 2:
+                logger.warning(f"Not enough timeseries data for {ticker} ({code})")
                 continue
 
-            closes = candle["c"]
-            current = closes[-1]
-            prev = closes[-2]
+            # 최근 2일로 변화율 계산
+            sorted_dates = sorted(ts.keys(), reverse=True)
+            current = ts[sorted_dates[0]]["close"]
+            prev = ts[sorted_dates[1]]["close"]
             change_abs = current - prev
             change_pct = (change_abs / prev) * 100 if prev else 0.0
             is_open = _is_market_open(cfg["open_utc"], cfg["close_utc"])
 
-            # upsert market_snapshots — PostgreSQL ON CONFLICT DO UPDATE (race condition 방지)
+            # upsert market_snapshots
             snap_values = dict(
                 country_code=code,
                 index_name=cfg["index_name"],
@@ -98,27 +113,18 @@ def fetch_all_markets(db: Session) -> int:
             db.execute(stmt)
 
             # market_history upsert (최근 5일치)
-            times = candle.get("t", [])
-            opens = candle.get("o", [])
-            highs = candle.get("h", [])
-            lows = candle.get("l", [])
-            volumes = candle.get("v", [])
-
-            for i, close_val in enumerate(closes):
-                ts = times[i] if i < len(times) else None
-                if ts:
-                    d = datetime.fromtimestamp(ts, tz=timezone.utc).date()
-                else:
-                    continue
+            for date_str in sorted(ts.keys()):
+                data = ts[date_str]
+                d = datetime.strptime(date_str, "%Y-%m-%d").date()
 
                 hist_values = dict(
                     country_code=code,
                     date=d,
-                    open=opens[i] if i < len(opens) else None,
-                    high=highs[i] if i < len(highs) else None,
-                    low=lows[i] if i < len(lows) else None,
-                    close=close_val,
-                    volume=volumes[i] if i < len(volumes) else None,
+                    open=data["open"],
+                    high=data["high"],
+                    low=data["low"],
+                    close=data["close"],
+                    volume=data["volume"],
                 )
                 hist_stmt = pg_insert(MarketHistory).values(**hist_values)
                 hist_stmt = hist_stmt.on_conflict_do_nothing()
@@ -130,8 +136,7 @@ def fetch_all_markets(db: Session) -> int:
             logger.error(f"Error processing {ticker} ({code}): {e}")
             continue
 
-        import time
-        time.sleep(0.2)  # Rate limit 방지
+        time.sleep(0.25)  # Alpha Vantage rate limit (분당 5 요청)
 
     db.commit()
     logger.info(f"Market fetch complete: {updated}/{len(MARKET_CONFIG)} markets updated")
@@ -139,7 +144,7 @@ def fetch_all_markets(db: Session) -> int:
 
 
 def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
-    """최근 30일 종가 이력 반환 (DB 우선, 없으면 Finnhub)."""
+    """최근 30일 종가 이력 반환 (DB 우선, 없으면 Alpha Vantage)."""
     # DB에서 최근 30일 데이터 조회
     cutoff = date.today() - timedelta(days=30)
     rows = db.execute(
@@ -152,28 +157,22 @@ def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
     if rows:
         return [{"date": r.date.strftime("%Y-%m-%d"), "close": r.close} for r in rows]
 
-    # DB에 없으면 Finnhub 호출 (마지막 수단)
+    # DB에 없으면 Alpha Vantage 호출 (마지막 수단)
     cfg = next((m for m in MARKET_CONFIG if m["country_code"] == country_code), None)
     if not cfg:
         return []
 
     try:
-        candle = _finnhub_candle(cfg["ticker"], days=30)
-        if not candle or "c" not in candle:
+        ts = _alpha_vantage_timeseries(cfg["ticker"], days=30)
+        if not ts:
             return []
 
         result = []
-        closes = candle["c"]
-        times = candle.get("t", [])
-
-        for i, close_val in enumerate(closes):
-            ts = times[i] if i < len(times) else None
-            if ts:
-                date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-                result.append({
-                    "date": date_str,
-                    "close": round(close_val, 4) if close_val else None,
-                })
+        for date_str in sorted(ts.keys()):
+            result.append({
+                "date": date_str,
+                "close": round(ts[date_str]["close"], 4),
+            })
 
         return result
     except Exception as e:

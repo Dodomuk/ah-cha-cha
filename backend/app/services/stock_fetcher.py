@@ -1,4 +1,4 @@
-"""Finnhub으로 국가별 주요 종목 무버스, 뉴스, 상세 데이터를 수집한다."""
+"""Alpha Vantage로 국가별 주요 종목 무버스, 뉴스, 상세 데이터를 수집한다."""
 
 import logging
 import re
@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 # ── 인메모리 캐시 ────────────────────────────────────────────────────
 _movers_cache: dict[str, tuple[datetime, dict]] = {}
 _detail_cache: dict[str, tuple[datetime, dict]] = {}
-MOVERS_TTL = timedelta(minutes=60)  # 1시간 — Rate Limit 방지
-DETAIL_TTL = timedelta(minutes=30)  # 30분 — Rate Limit 방지
+MOVERS_TTL = timedelta(minutes=60)
+DETAIL_TTL = timedelta(minutes=30)
 
-FINNHUB_BASE = "https://finnhub.io/api/v1"
+ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query"
 
 
 def _cache_get(cache: dict, key: str, ttl: timedelta):
@@ -40,19 +40,14 @@ def _cache_set(cache: dict, key: str, value: dict):
 
 # ── 뉴스 키워드 ──────────────────────────────────────────────────────
 _HIGHLIGHT_PATTERNS = [
-    # 실적/재무
     r'\bearnings?\b', r'\brevenue\b', r'\bprofit\b', r'\bEPS\b', r'\bbeat\b', r'\bmiss\b',
     r'\bguidance\b', r'\boutlook\b', r'\bforecast\b', r'\bdividend\b',
-    # 이벤트
     r'\bacquisition\b', r'\bmerger\b', r'\bIPO\b', r'\bbuyback\b', r'\blayoff[s]?\b',
     r'\brecall\b', r'\blawsuit\b', r'\bfine\b', r'\bpenalty\b',
-    # 기술/산업
     r'\bAI\b', r'\bsemiconductor\b', r'\bchip[s]?\b', r'\bEV\b', r'\bbattery\b',
     r'\bcloud\b', r'\bdata center\b', r'\b5G\b', r'\bsupply chain\b',
-    # 거시
     r'\bFed\b', r'\binterest rate[s]?\b', r'\binflation\b', r'\btariff[s]?\b',
     r'\bsanction[s]?\b', r'\brecession\b',
-    # 방향
     r'\bsurge[sd]?\b', r'\bplunge[sd]?\b', r'\bsoar[sed]?\b', r'\bfall[s]?\b',
     r'\brise[s]?\b', r'\bgain[s]?\b', r'\bdrop[s]?\b', r'\brally\b', r'\bslump\b',
 ]
@@ -73,93 +68,78 @@ def _highlight(text: str) -> list[dict]:
     return segments if segments else [{"text": text, "highlight": False}]
 
 
-# ── Finnhub API 호출 ──────────────────────────────────────────────────
+# ── Alpha Vantage API 호출 ───────────────────────────────────────────
 
-def _finnhub_quote(ticker: str) -> dict | None:
+def _alpha_vantage_quote(ticker: str) -> dict | None:
     """현재 가격 정보"""
     try:
         resp = requests.get(
-            f"{FINNHUB_BASE}/quote",
-            params={"symbol": ticker, "token": settings.finnhub_api_key},
+            ALPHA_VANTAGE_BASE,
+            params={
+                "function": "GLOBAL_QUOTE",
+                "symbol": ticker,
+                "apikey": settings.alpha_vantage_api_key,
+            },
             timeout=10
         )
         resp.raise_for_status()
         data = resp.json()
-        if not data or "c" not in data:
+        gq = data.get("Global Quote", {})
+
+        if not gq or "05. price" not in gq:
             logger.warning(f"Quote API returned empty data for {ticker}: {data}")
             return None
-        return data
+
+        return {
+            "price": float(gq.get("05. price", 0)),
+            "prev_close": float(gq.get("08. previous close", 0)),
+            "change_pct": float(gq.get("10. change percent", "0%").rstrip("%") or 0),
+            "open": float(gq.get("01. open", 0)),
+            "high": float(gq.get("03. high", 0)),
+            "low": float(gq.get("04. low", 0)),
+            "volume": int(gq.get("06. volume", 0) or 0),
+        }
     except Exception as e:
         logger.error(f"Quote API error for {ticker}: {e}")
         return None
 
 
-def _finnhub_candle(ticker: str, days: int = 5) -> dict | None:
+def _alpha_vantage_timeseries(ticker: str, days: int = 5) -> dict | None:
     """일봉 데이터"""
     try:
-        now = datetime.now(timezone.utc)
-        to_ts = int(now.timestamp())
-        from_ts = int((now - timedelta(days=days)).timestamp())
-
         resp = requests.get(
-            f"{FINNHUB_BASE}/stock/candle",
+            ALPHA_VANTAGE_BASE,
             params={
+                "function": "TIME_SERIES_DAILY",
                 "symbol": ticker,
-                "resolution": "D",
-                "from": from_ts,
-                "to": to_ts,
-                "token": settings.finnhub_api_key,
+                "outputsize": "full",
+                "apikey": settings.alpha_vantage_api_key,
             },
             timeout=10
         )
         resp.raise_for_status()
         data = resp.json()
-        if not data or "c" not in data or len(data.get("c", [])) == 0:
-            logger.warning(f"Candle API returned empty/invalid data for {ticker}: {data}")
+        ts = data.get("Time Series", {})
+
+        if not ts:
+            logger.warning(f"TimeSeries API returned empty data for {ticker}: {data}")
             return None
-        return data
+
+        # 최근 N일의 데이터만 반환
+        sorted_dates = sorted(ts.keys(), reverse=True)[:days]
+        result = {}
+        for date_str in sorted_dates:
+            result[date_str] = {
+                "open": float(ts[date_str].get("1. open", 0)),
+                "high": float(ts[date_str].get("2. high", 0)),
+                "low": float(ts[date_str].get("3. low", 0)),
+                "close": float(ts[date_str].get("4. close", 0)),
+                "volume": int(ts[date_str].get("5. volume", 0) or 0),
+            }
+
+        return result if result else None
     except Exception as e:
-        logger.error(f"Candle API error for {ticker}: {e}")
-        return None
-
-
-def _finnhub_news(ticker: str) -> list[dict] | None:
-    """회사 뉴스 (최대 8개)"""
-    try:
-        now = datetime.now(timezone.utc)
-        from_date = (now - timedelta(days=30)).strftime("%Y-%m-%d")
-        to_date = now.strftime("%Y-%m-%d")
-
-        resp = requests.get(
-            f"{FINNHUB_BASE}/company-news",
-            params={
-                "symbol": ticker,
-                "from": from_date,
-                "to": to_date,
-                "token": settings.finnhub_api_key,
-            },
-            timeout=10
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data if isinstance(data, list) else []
-    except Exception as e:
-        logger.error(f"News API error for {ticker}: {e}")
-        return None
-
-
-def _finnhub_profile(ticker: str) -> dict | None:
-    """회사 프로필"""
-    try:
-        resp = requests.get(
-            f"{FINNHUB_BASE}/stock/profile2",
-            params={"symbol": ticker, "token": settings.finnhub_api_key},
-            timeout=10
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.error(f"Profile API error for {ticker}: {e}")
+        logger.error(f"TimeSeries API error for {ticker}: {e}")
         return None
 
 
@@ -180,7 +160,7 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
         ).scalar_one_or_none()
 
         if row and (datetime.now(timezone.utc) - row.updated_at) < MOVERS_TTL:
-            _cache_set(_movers_cache, code, row.data)  # 인메모리에도 저장
+            _cache_set(_movers_cache, code, row.data)
             return row.data
 
     stocks = STOCKS_BY_COUNTRY.get(code, [])
@@ -190,23 +170,24 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
     ticker_map = {s["ticker"]: s for s in stocks}
     results = []
 
-    # 각 종목별로 Finnhub Quote 호출 (5일 가격 변화 계산)
+    # 각 종목별로 Alpha Vantage Quote 호출
     for info in stocks:
         ticker = info["ticker"]
         try:
-            quote = _finnhub_quote(ticker)
-            if not quote or "c" not in quote:
+            quote = _alpha_vantage_quote(ticker)
+            if not quote:
                 logger.warning(f"No quote data for {ticker}")
                 continue
 
-            candle = _finnhub_candle(ticker, days=5)
-            if not candle or "c" not in candle or len(candle["c"]) < 2:
-                logger.warning(f"Not enough candle data for {ticker}")
+            ts = _alpha_vantage_timeseries(ticker, days=5)
+            if not ts or len(ts) < 2:
+                logger.warning(f"Not enough timeseries data for {ticker}")
                 continue
 
-            closes = candle["c"]
-            current = closes[-1]
-            prev = closes[-2]
+            # 최근 2일로 변화율 계산
+            sorted_dates = sorted(ts.keys(), reverse=True)
+            current = ts[sorted_dates[0]]["close"]
+            prev = ts[sorted_dates[1]]["close"]
             change_pct = ((current - prev) / prev * 100) if prev else 0.0
 
             results.append({
@@ -224,11 +205,11 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
             logger.warning(f"Error processing {ticker}: {e}")
             continue
 
-        time.sleep(0.2)  # API rate limit 방지
+        time.sleep(0.25)  # Alpha Vantage 분당 5 요청 제한 (0.2초 * 5 = 1초마다 5개)
 
     results.sort(key=lambda x: x["change_pct"], reverse=True)
 
-    # 섹터별 평균 등락률 → 주도 섹터
+    # 섹터별 평균 등락률
     sector_groups: dict[str, list[float]] = defaultdict(list)
     for r in results:
         sector_groups[r["sector"]].append(r["change_pct"])
@@ -271,7 +252,6 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
         "all": results,
     }
 
-    # 인메모리 + DB 캐시 모두 저장
     _cache_set(_movers_cache, code, data)
     if db:
         stmt = pg_insert(CountryMoversSnapshot).values(
@@ -290,16 +270,13 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
 # ── 종목 상세 ────────────────────────────────────────────────────────
 
 def get_stock_detail(ticker: str) -> dict:
-    # 캐시 우선 반환
     cached = _cache_get(_detail_cache, ticker, DETAIL_TTL)
     if cached:
         return cached
 
     try:
-        quote = _finnhub_quote(ticker)
-        profile = _finnhub_profile(ticker)
-        candle = _finnhub_candle(ticker, days=30)
-        news_list = _finnhub_news(ticker)
+        quote = _alpha_vantage_quote(ticker)
+        ts = _alpha_vantage_timeseries(ticker, days=30)
 
         if not quote:
             logger.warning(f"No quote data for {ticker}")
@@ -307,67 +284,38 @@ def get_stock_detail(ticker: str) -> dict:
 
         # 30일 가격 이력
         history = []
-        if candle and "c" in candle and len(candle["c"]) > 0:
-            closes = candle["c"]
-            times = candle.get("t", [])
-            for i, close in enumerate(closes):
-                ts = times[i] if i < len(times) else None
-                if ts:
-                    date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
-                else:
-                    date_str = None
-
+        if ts:
+            for date_str in sorted(ts.keys()):
+                data = ts[date_str]
                 history.append({
                     "date": date_str,
-                    "close": round(close, 4) if close else None,
-                    "open": round(candle["o"][i], 4) if "o" in candle and i < len(candle["o"]) else None,
-                    "high": round(candle["h"][i], 4) if "h" in candle and i < len(candle["h"]) else None,
-                    "low": round(candle["l"][i], 4) if "l" in candle and i < len(candle["l"]) else None,
-                    "volume": int(candle["v"][i]) if "v" in candle and i < len(candle["v"]) else None,
-                })
-
-        # 뉴스 (최대 8개)
-        news = []
-        if news_list:
-            for n in news_list[:8]:
-                title = n.get("headline", "")
-                if not title:
-                    continue
-                news.append({
-                    "title": title,
-                    "segments": _highlight(title),
-                    "link": n.get("url", ""),
-                    "publisher": n.get("source", ""),
-                    "published_at": n.get("datetime", 0),
+                    "close": round(data["close"], 4),
+                    "open": round(data["open"], 4),
+                    "high": round(data["high"], 4),
+                    "low": round(data["low"], 4),
+                    "volume": data["volume"],
                 })
 
         # 글로벌 스프레드
         spread = TICKER_TO_SPREAD.get(ticker)
 
-        # 핵심 지표
-        def safe(obj, key, default=None):
-            if not obj:
-                return default
-            v = obj.get(key, default)
-            return v if v is not None and v != "N/A" else default
-
         data = {
             "ticker": ticker,
-            "name": safe(profile, "name") or safe(quote, "name") or ticker,
-            "sector": safe(profile, "finnhubIndustry", ""),
-            "industry": safe(profile, "finnhubIndustry", ""),
-            "current_price": safe(quote, "c"),
-            "change_pct": safe(quote, "dp"),  # change percent
-            "market_cap": safe(profile, "marketCapitalization"),
-            "pe_ratio": safe(profile, "pe"),
+            "name": ticker,
+            "sector": "",
+            "industry": "",
+            "current_price": round(quote["price"], 2),
+            "change_pct": round(quote["change_pct"], 2),
+            "market_cap": None,
+            "pe_ratio": None,
             "forward_pe": None,
-            "52w_high": safe(quote, "h52"),
-            "52w_low": safe(quote, "l52"),
-            "avg_volume": safe(profile, "shareOutstanding"),
+            "52w_high": None,
+            "52w_low": None,
+            "avg_volume": round(quote["volume"], 0),
             "dividend_yield": None,
             "beta": None,
             "history": history,
-            "news": news,
+            "news": [],  # Alpha Vantage 무료는 뉴스 미지원
             "spread": spread,
         }
 
@@ -386,8 +334,7 @@ def get_stock_detail(ticker: str) -> dict:
 # ── 전체 무버스 프리패치 (스케줄러 전용) ─────────────────────────────
 
 def prefetch_all_movers(db: Session) -> int:
-    """모든 지원 국가의 무버스 데이터를 미리 가져와 DB에 저장한다.
-    국가 간 2초 딜레이로 Rate Limit 방지."""
+    """모든 지원 국가의 무버스 데이터를 미리 가져와 DB에 저장한다."""
     countries = list(STOCKS_BY_COUNTRY.keys())
     success = 0
     for code in countries:
@@ -400,6 +347,6 @@ def prefetch_all_movers(db: Session) -> int:
                 logger.warning(f"Prefetch movers empty: {code}")
         except Exception as e:
             logger.error(f"Prefetch movers failed for {code}: {e}")
-        time.sleep(2)  # Finnhub Rate Limit 방지
+        time.sleep(1)  # Alpha Vantage rate limit (분당 5 요청)
     logger.info(f"Movers prefetch complete: {success}/{len(countries)} countries")
     return success
