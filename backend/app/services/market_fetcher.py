@@ -1,17 +1,20 @@
-"""yfinance를 이용해 전 세계 주요 지수 데이터를 수집한다."""
+"""Finnhub을 이용해 전 세계 주요 지수 데이터를 수집한다."""
 
 import logging
 from datetime import datetime, timezone, date, timedelta
 
-import yfinance as yf
+import requests
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.market import MarketSnapshot, MarketHistory
 from app.services.market_config import MARKET_CONFIG
+from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 
 def _is_market_open(open_utc: str, close_utc: str) -> bool:
@@ -28,25 +31,33 @@ def _is_market_open(open_utc: str, close_utc: str) -> bool:
     return now >= open_t or now <= close_t
 
 
-def fetch_all_markets(db: Session) -> int:
-    """모든 시장 데이터를 yfinance로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
-    tickers = [m["ticker"] for m in MARKET_CONFIG]
-
+def _finnhub_candle(ticker: str, days: int = 5) -> dict | None:
+    """Finnhub 일봉 데이터"""
     try:
-        # 한 번의 download 호출로 모든 티커 처리 (rate limit 최소화)
-        raw = yf.download(
-            tickers,
-            period="5d",
-            interval="1d",
-            group_by="ticker",
-            auto_adjust=True,
-            progress=False,
-            threads=True,
-        )
-    except Exception as e:
-        logger.error(f"yfinance download failed: {e}")
-        return 0
+        now = datetime.now(timezone.utc)
+        to_ts = int(now.timestamp())
+        from_ts = int((now - timedelta(days=days)).timestamp())
 
+        resp = requests.get(
+            f"{FINNHUB_BASE}/stock/candle",
+            params={
+                "symbol": ticker,
+                "resolution": "D",
+                "from": from_ts,
+                "to": to_ts,
+                "token": settings.finnhub_api_key,
+            },
+            timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Candle API error for {ticker}: {e}")
+        return None
+
+
+def fetch_all_markets(db: Session) -> int:
+    """모든 시장 데이터를 Finnhub으로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
     updated = 0
     now = datetime.now(timezone.utc)
 
@@ -54,22 +65,14 @@ def fetch_all_markets(db: Session) -> int:
         ticker = cfg["ticker"]
         code = cfg["country_code"]
         try:
-            # 멀티 티커 응답 구조: raw[ticker]["Close"] 등
-            if len(tickers) == 1:
-                df = raw
-            else:
-                df = raw[ticker] if ticker in raw.columns.get_level_values(0) else None
-
-            if df is None or df.empty:
-                logger.warning(f"No data for {ticker} ({code})")
+            candle = _finnhub_candle(ticker, days=5)
+            if not candle or "c" not in candle or len(candle["c"]) < 2:
+                logger.warning(f"Not enough candle data for {ticker} ({code})")
                 continue
 
-            closes = df["Close"].dropna()
-            if len(closes) < 2:
-                continue
-
-            current = float(closes.iloc[-1])
-            prev = float(closes.iloc[-2])
+            closes = candle["c"]
+            current = closes[-1]
+            prev = closes[-2]
             change_abs = current - prev
             change_pct = (change_abs / prev) * 100 if prev else 0.0
             is_open = _is_market_open(cfg["open_utc"], cfg["close_utc"])
@@ -95,17 +98,27 @@ def fetch_all_markets(db: Session) -> int:
             db.execute(stmt)
 
             # market_history upsert (최근 5일치)
-            for ts, close_val in closes.items():
-                d = ts.date() if hasattr(ts, "date") else ts
-                row = df.loc[ts]
+            times = candle.get("t", [])
+            opens = candle.get("o", [])
+            highs = candle.get("h", [])
+            lows = candle.get("l", [])
+            volumes = candle.get("v", [])
+
+            for i, close_val in enumerate(closes):
+                ts = times[i] if i < len(times) else None
+                if ts:
+                    d = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                else:
+                    continue
+
                 hist_values = dict(
                     country_code=code,
                     date=d,
-                    open=float(row["Open"]) if "Open" in row else None,
-                    high=float(row["High"]) if "High" in row else None,
-                    low=float(row["Low"]) if "Low" in row else None,
-                    close=float(close_val),
-                    volume=float(row["Volume"]) if "Volume" in row else None,
+                    open=opens[i] if i < len(opens) else None,
+                    high=highs[i] if i < len(highs) else None,
+                    low=lows[i] if i < len(lows) else None,
+                    close=close_val,
+                    volume=volumes[i] if i < len(volumes) else None,
                 )
                 hist_stmt = pg_insert(MarketHistory).values(**hist_values)
                 hist_stmt = hist_stmt.on_conflict_do_nothing()
@@ -117,13 +130,16 @@ def fetch_all_markets(db: Session) -> int:
             logger.error(f"Error processing {ticker} ({code}): {e}")
             continue
 
+        import time
+        time.sleep(0.2)  # Rate limit 방지
+
     db.commit()
     logger.info(f"Market fetch complete: {updated}/{len(MARKET_CONFIG)} markets updated")
     return updated
 
 
 def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
-    """최근 30일 종가 이력 반환 (DB 우선, 없으면 yfinance — Rate Limit 방지)."""
+    """최근 30일 종가 이력 반환 (DB 우선, 없으면 Finnhub)."""
     # DB에서 최근 30일 데이터 조회
     cutoff = date.today() - timedelta(days=30)
     rows = db.execute(
@@ -136,31 +152,29 @@ def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
     if rows:
         return [{"date": r.date.strftime("%Y-%m-%d"), "close": r.close} for r in rows]
 
-    # DB에 없으면 yfinance 개별 호출 (마지막 수단)
+    # DB에 없으면 Finnhub 호출 (마지막 수단)
     cfg = next((m for m in MARKET_CONFIG if m["country_code"] == country_code), None)
     if not cfg:
         return []
 
     try:
-        df = yf.download(
-            cfg["ticker"],
-            period="30d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
-        if df.empty:
+        candle = _finnhub_candle(cfg["ticker"], days=30)
+        if not candle or "c" not in candle:
             return []
 
         result = []
-        for ts, row in df.iterrows():
-            close_val = row["Close"]
-            if hasattr(close_val, "item"):
-                close_val = close_val.item()
-            result.append({
-                "date": ts.strftime("%Y-%m-%d"),
-                "close": round(float(close_val), 4) if close_val == close_val else None,
-            })
+        closes = candle["c"]
+        times = candle.get("t", [])
+
+        for i, close_val in enumerate(closes):
+            ts = times[i] if i < len(times) else None
+            if ts:
+                date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                result.append({
+                    "date": date_str,
+                    "close": round(close_val, 4) if close_val else None,
+                })
+
         return result
     except Exception as e:
         logger.error(f"fetch_history_30d failed for {country_code}: {e}")
