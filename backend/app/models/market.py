@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, Boolean, DateTime, Date
+from sqlalchemy import String, Float, Boolean, DateTime, Date, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -28,6 +28,7 @@ class MarketSnapshot(Base):
 class MarketHistory(Base):
     """국가별 일별 종가 이력 — 스파크라인 차트용"""
     __tablename__ = "market_history"
+    __table_args__ = (UniqueConstraint("country_code", "date", name="uq_market_history_code_date"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     country_code: Mapped[str] = mapped_column(String(2), nullable=False)

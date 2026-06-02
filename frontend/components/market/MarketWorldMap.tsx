@@ -24,26 +24,26 @@ function getCountryCode(props: Record<string, unknown>): string {
 
 /** % 등락률 → RGB 색상 */
 function changePctToColor(pct: number | null): { fill: string; stroke: string; glow: string } {
-  if (pct === null) return { fill: '#0e1a1a', stroke: '#1e3d3d', glow: 'transparent' }
+  if (pct === null) return { fill: '#1c2e2e', stroke: '#2e5555', glow: 'transparent' }
 
   const abs = Math.abs(pct)
-  const intensity = Math.min(abs / 3, 1) // 3% 이상이면 최대 채도
+  const intensity = Math.min(abs / 2, 1) // 2% 이상이면 최대 채도 (더 선명하게)
 
   if (pct > 0) {
-    const g = Math.round(120 + intensity * 135)  // 120 ~ 255
-    const rb = Math.round(30 - intensity * 30)    // 30 ~ 0
+    const g = Math.round(160 + intensity * 95)   // 160 ~ 255
+    const rb = Math.round(20 - intensity * 20)   // 20 ~ 0
     return {
-      fill: `rgba(${rb},${g},${rb},0.35)`,
+      fill: `rgba(${rb},${g},${rb},0.55)`,
       stroke: `rgb(${rb},${g},${rb})`,
-      glow: `rgba(0,${g},0,0.5)`,
+      glow: `rgba(0,${g},0,0.6)`,
     }
   } else {
-    const r = Math.round(120 + intensity * 135)
-    const gb = Math.round(30 - intensity * 30)
+    const r = Math.round(160 + intensity * 95)
+    const gb = Math.round(20 - intensity * 20)
     return {
-      fill: `rgba(${r},${gb},${gb},0.35)`,
+      fill: `rgba(${r},${gb},${gb},0.55)`,
       stroke: `rgb(${r},${gb},${gb})`,
-      glow: `rgba(${r},0,0,0.5)`,
+      glow: `rgba(${r},0,0,0.6)`,
     }
   }
 }
@@ -101,7 +101,7 @@ export default function MarketWorldMap({ markets, onCountryClick }: MarketWorldM
         ctx.shadowBlur = isHovered ? 20 : 8
         ctx.shadowColor = glow
       }
-      ctx.fillStyle = isHovered && !hasData ? '#1a2f2f' : fill
+      ctx.fillStyle = isHovered && !hasData ? '#2a4545' : fill
       ctx.fill(path2D)
       ctx.restore()
 
@@ -117,7 +117,7 @@ export default function MarketWorldMap({ markets, onCountryClick }: MarketWorldM
         ctx.strokeStyle = stroke
         ctx.lineWidth = 1 / (window.devicePixelRatio || 1)
       } else {
-        ctx.strokeStyle = '#1e3d3d'
+        ctx.strokeStyle = '#2e5555'
         ctx.lineWidth = 0.6 / (window.devicePixelRatio || 1)
       }
       ctx.stroke(path2D)

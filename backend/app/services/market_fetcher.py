@@ -6,6 +6,7 @@ from datetime import datetime, timezone, date, timedelta
 import yfinance as yf
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.market import MarketSnapshot, MarketHistory
 from app.services.market_config import MARKET_CONFIG
@@ -73,45 +74,42 @@ def fetch_all_markets(db: Session) -> int:
             change_pct = (change_abs / prev) * 100 if prev else 0.0
             is_open = _is_market_open(cfg["open_utc"], cfg["close_utc"])
 
-            # upsert market_snapshots
-            obj = db.execute(
-                select(MarketSnapshot).where(MarketSnapshot.country_code == code)
-            ).scalar_one_or_none()
-
-            if obj is None:
-                obj = MarketSnapshot(country_code=code)
-                db.add(obj)
-
-            obj.index_name = cfg["index_name"]
-            obj.index_name_ko = cfg["index_name_ko"]
-            obj.ticker = ticker
-            obj.current_value = current
-            obj.prev_close = prev
-            obj.change_pct = round(change_pct, 4)
-            obj.change_abs = round(change_abs, 4)
-            obj.is_open = is_open
-            obj.updated_at = now
+            # upsert market_snapshots — PostgreSQL ON CONFLICT DO UPDATE (race condition 방지)
+            snap_values = dict(
+                country_code=code,
+                index_name=cfg["index_name"],
+                index_name_ko=cfg["index_name_ko"],
+                ticker=ticker,
+                current_value=current,
+                prev_close=prev,
+                change_pct=round(change_pct, 4),
+                change_abs=round(change_abs, 4),
+                is_open=is_open,
+                updated_at=now,
+            )
+            stmt = pg_insert(MarketSnapshot).values(**snap_values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["country_code"],
+                set_={k: stmt.excluded[k] for k in snap_values if k != "country_code"},
+            )
+            db.execute(stmt)
 
             # market_history upsert (최근 5일치)
             for ts, close_val in closes.items():
                 d = ts.date() if hasattr(ts, "date") else ts
-                existing = db.execute(
-                    select(MarketHistory).where(
-                        MarketHistory.country_code == code,
-                        MarketHistory.date == d,
-                    )
-                ).scalar_one_or_none()
-                if existing is None:
-                    row = df.loc[ts]
-                    db.add(MarketHistory(
-                        country_code=code,
-                        date=d,
-                        open=float(row["Open"]) if "Open" in row else None,
-                        high=float(row["High"]) if "High" in row else None,
-                        low=float(row["Low"]) if "Low" in row else None,
-                        close=float(close_val),
-                        volume=float(row["Volume"]) if "Volume" in row else None,
-                    ))
+                row = df.loc[ts]
+                hist_values = dict(
+                    country_code=code,
+                    date=d,
+                    open=float(row["Open"]) if "Open" in row else None,
+                    high=float(row["High"]) if "High" in row else None,
+                    low=float(row["Low"]) if "Low" in row else None,
+                    close=float(close_val),
+                    volume=float(row["Volume"]) if "Volume" in row else None,
+                )
+                hist_stmt = pg_insert(MarketHistory).values(**hist_values)
+                hist_stmt = hist_stmt.on_conflict_do_nothing()
+                db.execute(hist_stmt)
 
             updated += 1
 

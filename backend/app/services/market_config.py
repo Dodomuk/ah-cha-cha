@@ -19,7 +19,7 @@ MARKET_CONFIG = [
     {"country_code": "NL", "index_name": "AEX",         "index_name_ko": "AEX",          "ticker": "^AEX",  "open_utc": "07:00", "close_utc": "15:30", "timezone": "Europe/Amsterdam"},
     {"country_code": "CH", "index_name": "SMI",         "index_name_ko": "SMI",          "ticker": "^SSMI", "open_utc": "07:00", "close_utc": "15:30", "timezone": "Europe/Zurich"},
     {"country_code": "SE", "index_name": "OMX 30",      "index_name_ko": "OMX 30",       "ticker": "^OMX",  "open_utc": "07:00", "close_utc": "15:25", "timezone": "Europe/Stockholm"},
-    {"country_code": "PL", "index_name": "WIG20",       "index_name_ko": "WIG20",        "ticker": "^WIG20","open_utc": "07:00", "close_utc": "15:50", "timezone": "Europe/Warsaw"},
+    {"country_code": "PL", "index_name": "WIG20",       "index_name_ko": "WIG20",        "ticker": "WIG20.WA","open_utc": "07:00", "close_utc": "15:50", "timezone": "Europe/Warsaw"},
     {"country_code": "TR", "index_name": "BIST 100",    "index_name_ko": "BIST 100",     "ticker": "XU100.IS","open_utc": "07:00", "close_utc": "14:00","timezone": "Europe/Istanbul"},
 
     # 아시아
@@ -33,7 +33,7 @@ MARKET_CONFIG = [
     {"country_code": "MY", "index_name": "KLCI",        "index_name_ko": "KLCI",         "ticker": "^KLSE", "open_utc": "01:00", "close_utc": "09:00", "timezone": "Asia/Kuala_Lumpur"},
     {"country_code": "ID", "index_name": "IDX",         "index_name_ko": "인도네시아 IDX","ticker": "^JKSE", "open_utc": "01:30", "close_utc": "09:00", "timezone": "Asia/Jakarta"},
     {"country_code": "TH", "index_name": "SET",         "index_name_ko": "SET",          "ticker": "^SET.BK","open_utc": "02:30","close_utc": "09:30", "timezone": "Asia/Bangkok"},
-    {"country_code": "VN", "index_name": "VN-Index",    "index_name_ko": "VN지수",        "ticker": "^VNINDEX","open_utc": "02:15","close_utc": "08:00","timezone": "Asia/Ho_Chi_Minh"},
+    {"country_code": "VN", "index_name": "VN-Index",    "index_name_ko": "VN지수",        "ticker": "VNINDEX","open_utc": "02:15","close_utc": "08:00","timezone": "Asia/Ho_Chi_Minh"},
     {"country_code": "PH", "index_name": "PSEi",        "index_name_ko": "PSEi",         "ticker": "PSEi.PS","open_utc": "01:30","close_utc": "07:30", "timezone": "Asia/Manila"},
 
     # 중동/아프리카
