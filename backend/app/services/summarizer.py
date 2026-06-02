@@ -7,45 +7,49 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """당신은 사이버 보안 뉴스 분석가입니다.
-주어진 뉴스 기사를 분석하여 JSON 형식으로 정보를 추출합니다.
-모든 텍스트 출력은 반드시 한국어로 작성하세요."""
+SYSTEM_PROMPT = """You are a cybersecurity news analyst.
+Analyze the given news article and extract information in JSON format.
+Provide summaries in BOTH Korean and English."""
 
-USER_PROMPT_TEMPLATE = """다음 보안 뉴스 기사를 분석하고 JSON으로 응답하세요.
+USER_PROMPT_TEMPLATE = """Analyze the following security news article and respond with JSON only.
 
-제목: {title}
+Title: {title}
 
-다음 형식으로만 응답하세요 (다른 텍스트 없이):
+Respond ONLY in this exact format (no other text):
 {{
   "summary_title": "한 줄 요약 제목 (50자 이내, 한국어)",
   "summary_what": "무슨 일이 있었는지 설명 (3~5문장, 한국어)",
   "summary_impact": "어떤 피해나 영향이 발생했는지 (2~3문장, 한국어)",
-  "threat_level": 위협_레벨_숫자,
-  "country_codes": ["ISO_코드1", "ISO_코드2"],
-  "attacker_codes": ["공격자_국가_ISO_코드"],
-  "victim_codes": ["피해자_국가_ISO_코드"]
+  "summary_title_en": "One-line summary title (under 80 chars, English)",
+  "summary_what_en": "What happened (3-5 sentences, English)",
+  "summary_impact_en": "Damages and impact (2-3 sentences, English)",
+  "threat_level": <integer 0-4>,
+  "country_codes": ["ISO_CODE1", "ISO_CODE2"],
+  "attacker_codes": ["ATTACKER_COUNTRY_ISO"],
+  "victim_codes": ["VICTIM_COUNTRY_ISO"]
 }}
 
-위협 레벨 기준:
-- 0: 보안과 무관하거나 경미한 일반 정보
-- 1: 보안 패치 권고, 취약점 발견, 경미한 피싱
-- 2: 소규모 해킹, 데이터 유출, 취약점 악용
-- 3: 금융기관/기업 침해, 대규모 데이터 유출
-- 4: 국가기반시설 공격, 사이버전, 대규모 랜섬웨어
+Threat level criteria:
+- 0: Unrelated to security or minor general info
+- 1: Security patch advisory, vulnerability discovery, minor phishing
+- 2: Small-scale hack, data leak, vulnerability exploitation
+- 3: Financial/corporate breach, large-scale data leak
+- 4: Critical infrastructure attack, cyberwar, large-scale ransomware
 
-country_codes: 사건과 직접 관련된 모든 국가 ISO 3166-1 alpha-2 코드.
-attacker_codes: 공격을 수행한 것으로 귀속된 국가만 (확인된 경우). 불명이면 [].
-victim_codes: 공격의 피해를 입은 국가들. 불명이면 [].
-국가를 특정할 수 없으면 각 배열에 빈 배열 []을 반환하세요."""
+country_codes: All ISO 3166-1 alpha-2 codes of countries directly involved.
+attacker_codes: Countries attributed as attackers (only if confirmed). Empty array if unknown.
+victim_codes: Countries that were victims. Empty array if unknown."""
 
 
 _REPLACEMENT_CHAR = "�"
 
 
+_KO_FIELDS = {"summary_title", "summary_what", "summary_impact"}
+
 def _has_replacement_char(data: dict) -> bool:
-    """JSON 결과 내 어떤 문자열 필드에도 U+FFFD(깨진 문자)가 있으면 True."""
-    for v in data.values():
-        if isinstance(v, str) and _REPLACEMENT_CHAR in v:
+    """한국어 필드에만 U+FFFD(깨진 문자) 여부 확인."""
+    for k, v in data.items():
+        if k in _KO_FIELDS and isinstance(v, str) and _REPLACEMENT_CHAR in v:
             return True
     return False
 
@@ -69,7 +73,7 @@ async def summarize_article(title: str, max_retries: int = 3) -> tuple[dict | No
         try:
             message = await client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=512,
+                max_tokens=1024,
                 system=SYSTEM_PROMPT,
                 messages=[
                     {"role": "user", "content": USER_PROMPT_TEMPLATE.format(title=title[:500])}

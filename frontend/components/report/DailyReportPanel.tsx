@@ -82,7 +82,7 @@ const CATEGORY_LABEL_KEY: Record<Category, keyof Translations> = {
   korea:          'categoryKorea',
 }
 
-function generateReportText(articles: NewsArticle[], t: Translations): string {
+function generateReportText(articles: NewsArticle[], t: Translations, isEn: boolean): string {
   const today = new Date().toLocaleDateString(t.dateLocale, {
     year: 'numeric',
     month: 'long',
@@ -97,16 +97,19 @@ function generateReportText(articles: NewsArticle[], t: Translations): string {
 
   for (const a of articles) {
     const label = LEVEL_LABEL[a.threat_level] ?? 'Unknown'
-    lines.push(`[LV.${a.threat_level} ${label}] ${a.summary_title ?? ''}`)
+    const titleText = isEn ? (a.summary_title_en || a.summary_title) : a.summary_title
+    const whatText = isEn ? (a.summary_what_en || a.summary_what) : a.summary_what
+    const impactText = isEn ? (a.summary_impact_en || a.summary_impact) : a.summary_impact
+    lines.push(`[LV.${a.threat_level} ${label}] ${titleText ?? ''}`)
     lines.push('')
-    if (a.summary_what) {
+    if (whatText) {
       lines.push(t.reportOverview)
-      lines.push(a.summary_what)
+      lines.push(whatText)
       lines.push('')
     }
-    if (a.summary_impact) {
+    if (impactText) {
       lines.push(t.reportImpact)
-      lines.push(a.summary_impact)
+      lines.push(impactText)
       lines.push('')
     }
     lines.push(`${t.reportSource} ${a.url}`)
@@ -193,6 +196,8 @@ export default function DailyReportPanel() {
 
   const allArticles = data?.articles ?? []
   const t = useLangStore((s) => s.t)
+  const lang = useLangStore((s) => s.lang)
+  const isEn = lang === 'en'
 
   const filteredArticles = filterByCategories(allArticles, selectedCats)
 
@@ -222,7 +227,7 @@ export default function DailyReportPanel() {
   const groups = groupArticles(articles)
 
   const handleDownload = () => {
-    const text = generateReportText(articles, t)
+    const text = generateReportText(articles, t, isEn)
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -386,10 +391,10 @@ export default function DailyReportPanel() {
                   marginTop: 4,
                   fontFamily: 'monospace',
                 }}>
-                  {articles.length}건
+                  {t.reportItemCount(articles.length)}
                   {selectedCats.size > 0 && (
                     <span style={{ color: 'rgba(0,180,216,0.6)', marginLeft: 6 }}>
-                      · {t.categoryAll} {allArticles.length}건 중
+                      {t.reportFilterInfo(allArticles.length)}
                     </span>
                   )}
                 </div>
@@ -543,7 +548,7 @@ export default function DailyReportPanel() {
                   fontSize: 12,
                 }}>
                   {selectedCats.size > 0
-                    ? '선택한 카테고리의 기사가 없습니다'
+                    ? t.noCategoryArticles
                     : t.noArticles}
                 </div>
               ) : (
@@ -583,7 +588,7 @@ export default function DailyReportPanel() {
                           fontWeight: 600,
                           lineHeight: 1.45,
                         }}>
-                          {article.summary_title}
+                          {isEn ? (article.summary_title_en || article.summary_title) : article.summary_title}
                         </span>
                       </div>
 
@@ -611,48 +616,54 @@ export default function DailyReportPanel() {
                       )}
 
                       {/* 사건 개요 */}
-                      {article.summary_what && (
-                        <div style={{ marginBottom: 8 }}>
-                          <div style={{
-                            color: 'rgba(0,180,216,0.55)',
-                            fontSize: 10,
-                            fontFamily: 'monospace',
-                            marginBottom: 4,
-                            letterSpacing: '0.06em',
-                          }}>
-                            {t.overviewLabel}
+                      {(article.summary_what || article.summary_what_en) && (() => {
+                        const text = isEn ? (article.summary_what_en || article.summary_what) : article.summary_what
+                        return text ? (
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{
+                              color: 'rgba(0,180,216,0.55)',
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                              marginBottom: 4,
+                              letterSpacing: '0.06em',
+                            }}>
+                              {t.overviewLabel}
+                            </div>
+                            <div style={{
+                              color: 'rgba(255,255,255,0.6)',
+                              fontSize: 12,
+                              lineHeight: 1.65,
+                            }}>
+                              {text}
+                            </div>
                           </div>
-                          <div style={{
-                            color: 'rgba(255,255,255,0.6)',
-                            fontSize: 12,
-                            lineHeight: 1.65,
-                          }}>
-                            {article.summary_what}
-                          </div>
-                        </div>
-                      )}
+                        ) : null
+                      })()}
 
                       {/* 피해/영향 */}
-                      {article.summary_impact && (
-                        <div style={{ marginBottom: 10 }}>
-                          <div style={{
-                            color: 'rgba(255,140,0,0.55)',
-                            fontSize: 10,
-                            fontFamily: 'monospace',
-                            marginBottom: 4,
-                            letterSpacing: '0.06em',
-                          }}>
-                            {t.damagesLabel}
+                      {(article.summary_impact || article.summary_impact_en) && (() => {
+                        const text = isEn ? (article.summary_impact_en || article.summary_impact) : article.summary_impact
+                        return text ? (
+                          <div style={{ marginBottom: 10 }}>
+                            <div style={{
+                              color: 'rgba(255,140,0,0.55)',
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                              marginBottom: 4,
+                              letterSpacing: '0.06em',
+                            }}>
+                              {t.damagesLabel}
+                            </div>
+                            <div style={{
+                              color: 'rgba(255,255,255,0.6)',
+                              fontSize: 12,
+                              lineHeight: 1.65,
+                            }}>
+                              {text}
+                            </div>
                           </div>
-                          <div style={{
-                            color: 'rgba(255,255,255,0.6)',
-                            fontSize: 12,
-                            lineHeight: 1.65,
-                          }}>
-                            {article.summary_impact}
-                          </div>
-                        </div>
-                      )}
+                        ) : null
+                      })()}
 
                       {/* 원문 링크 + 중복 매체 표시 */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -687,7 +698,7 @@ export default function DailyReportPanel() {
                               color: 'rgba(255,255,255,0.2)',
                               fontFamily: 'monospace',
                             }}>
-                              +{group.length - 1}개 매체
+                              {t.multipleOutlets(group.length - 1)}
                             </span>
                             {group.slice(1).map((alt, ai) => (
                               <a

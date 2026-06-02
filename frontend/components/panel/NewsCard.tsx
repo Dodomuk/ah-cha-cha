@@ -23,12 +23,12 @@ interface Props {
   cardIndex?: number
 }
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: Translations): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const h = Math.floor(diff / 3600000)
-  if (h < 1) return '방금 전'
-  if (h < 24) return `${h}시간 전`
-  return `${Math.floor(h / 24)}일 전`
+  if (h < 1) return t.timeJustNow
+  if (h < 24) return t.timeHoursAgo(h)
+  return t.timeDaysAgo(Math.floor(h / 24))
 }
 
 function AnimatedWord({ word, delay }: { word: string; delay: number }) {
@@ -139,15 +139,21 @@ function AnimatedSection({ icon, label, text, color, startDelay, isLast }: Secti
 export default function NewsCard({ article, cardIndex = 0 }: Props) {
   const color = THREAT_STROKE[article.threat_level]
   const t = useLangStore((s) => s.t)
+  const lang = useLangStore((s) => s.lang)
   const cats = detectCategories(article)
+
+  const isEn = lang === 'en'
+  const title = (isEn ? (article.summary_title_en || article.summary_title) : article.summary_title) ?? ''
+  const what = (isEn ? (article.summary_what_en || article.summary_what) : article.summary_what) ?? ''
+  const impact = (isEn ? (article.summary_impact_en || article.summary_impact) : article.summary_impact) ?? ''
 
   // 카드 인덱스에 따라 전체 타임라인 오프셋
   const base = Math.min(cardIndex, 2) * 180
 
-  const titleWords = (article.summary_title ?? '').split(' ')
+  const titleWords = title.split(' ')
   const titleEndDelay = base + titleWords.length * 50
 
-  const whatWords = (article.summary_what ?? '').split(' ')
+  const whatWords = what.split(' ')
   const whatEndDelay = titleEndDelay + 200 + whatWords.length * 45
 
   return (
@@ -178,7 +184,7 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
           }}
         />
         <p className="text-[#E0FBFC] font-semibold leading-snug text-[13px]">
-          {titleWords.map((word, i) => (
+          {title.split(' ').map((word, i) => (
             <AnimatedWord key={i} word={word} delay={base + 60 + i * 50} />
           ))}
         </p>
@@ -214,22 +220,22 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
       )}
 
       {/* 섹션들 */}
-      {article.summary_what && (
+      {what && (
         <AnimatedSection
           icon="◈"
           label={t.whatLabel}
-          text={article.summary_what}
+          text={what}
           color={color}
           startDelay={titleEndDelay + 80}
-          isLast={!article.summary_impact}
+          isLast={!impact}
         />
       )}
 
-      {article.summary_impact && (
+      {impact && (
         <AnimatedSection
           icon="◉"
           label={t.impactLabel}
-          text={article.summary_impact}
+          text={impact}
           color={color}
           startDelay={whatEndDelay + 80}
           isLast
@@ -250,7 +256,7 @@ export default function NewsCard({ article, cardIndex = 0 }: Props) {
       >
         <span className="text-[11px] text-[#4A7A8A]">{article.source_domain}</span>
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-[#4A7A8A]">{timeAgo(article.published_at ?? article.collected_at)}</span>
+          <span className="text-[11px] text-[#4A7A8A]">{timeAgo(article.published_at ?? article.collected_at, t)}</span>
           <a
             href={article.url}
             target="_blank"

@@ -9,6 +9,9 @@ class NewsArticleOut(BaseModel):
     summary_title: str | None
     summary_what: str | None
     summary_impact: str | None
+    summary_title_en: str | None = None
+    summary_what_en: str | None = None
+    summary_impact_en: str | None = None
     threat_level: int
     url: str
     source_domain: str | None

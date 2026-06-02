@@ -18,6 +18,9 @@ export interface NewsArticle {
   summary_title: string
   summary_what: string
   summary_impact: string
+  summary_title_en?: string | null
+  summary_what_en?: string | null
+  summary_impact_en?: string | null
   threat_level: ThreatLevel
   url: string
   source_domain: string

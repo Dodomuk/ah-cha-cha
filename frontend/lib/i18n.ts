@@ -55,6 +55,15 @@ export interface Translations {
   // Sort
   sortLatest: string
   sortByLevel: string
+  // DailyReport extras
+  reportItemCount: (n: number) => string
+  reportFilterInfo: (total: number) => string
+  noCategoryArticles: string
+  multipleOutlets: (n: number) => string
+  // TimeAgo
+  timeJustNow: string
+  timeHoursAgo: (h: number) => string
+  timeDaysAgo: (d: number) => string
   // Search
   searchTitle: string
   searchPlaceholder: string
@@ -120,6 +129,15 @@ export const translations: Record<Lang, Translations> = {
     sortLatest: '최신순',
     sortByLevel: '위험도순',
 
+    reportItemCount: (n) => `${n}건`,
+    reportFilterInfo: (total) => `· 전체 ${total}건 중`,
+    noCategoryArticles: '선택한 카테고리의 기사가 없습니다',
+    multipleOutlets: (n) => `+${n}개 매체`,
+
+    timeJustNow: '방금 전',
+    timeHoursAgo: (h) => `${h}시간 전`,
+    timeDaysAgo: (d) => `${d}일 전`,
+
     searchTitle: '기사 검색',
     searchPlaceholder: '키워드 검색...',
     searchNoResults: '검색 결과가 없습니다',
@@ -181,6 +199,15 @@ export const translations: Record<Lang, Translations> = {
 
     sortLatest: 'Latest',
     sortByLevel: 'By Level',
+
+    reportItemCount: (n) => `${n} article${n !== 1 ? 's' : ''}`,
+    reportFilterInfo: (total) => `· of ${total} total`,
+    noCategoryArticles: 'No articles in selected categories',
+    multipleOutlets: (n) => `+${n} more`,
+
+    timeJustNow: 'just now',
+    timeHoursAgo: (h) => `${h}h ago`,
+    timeDaysAgo: (d) => `${d}d ago`,
 
     searchTitle: 'Search Articles',
     searchPlaceholder: 'Search keywords...',
