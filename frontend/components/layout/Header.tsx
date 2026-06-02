@@ -6,6 +6,7 @@ import type { Lang } from '@/lib/i18n'
 
 interface HeaderProps {
   snapshotAt?: string
+  hideLangToggle?: boolean
 }
 
 const FLAGS: { lang: Lang; flag: string; label: string }[] = [
@@ -13,7 +14,7 @@ const FLAGS: { lang: Lang; flag: string; label: string }[] = [
   { lang: 'ko', flag: '🇰🇷', label: '한국어' },
 ]
 
-export default function Header({ snapshotAt }: HeaderProps) {
+export default function Header({ snapshotAt, hideLangToggle = false }: HeaderProps) {
   const { lang, setLang, t } = useLangStore()
   const setSearchOpen = useSearchStore((s) => s.setOpen)
 
@@ -50,31 +51,33 @@ export default function Header({ snapshotAt }: HeaderProps) {
           >
             {t.title}
           </span>
-          <div className="flex items-center gap-1.5">
-            {FLAGS.map(({ lang: l, flag, label }) => (
-              <button
-                key={l}
-                onClick={() => setLang(l)}
-                title={label}
-                style={{
-                  fontSize: 13,
-                  lineHeight: 1,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '1px 2px',
-                  borderRadius: 3,
-                  opacity: lang === l ? 1 : 0.35,
-                  transition: 'opacity 0.15s',
-                  filter: lang === l ? 'drop-shadow(0 0 4px rgba(0,180,216,0.5))' : 'none',
-                }}
-                onMouseEnter={e => { if (lang !== l) (e.currentTarget as HTMLButtonElement).style.opacity = '0.65' }}
-                onMouseLeave={e => { if (lang !== l) (e.currentTarget as HTMLButtonElement).style.opacity = '0.35' }}
-              >
-                {flag}
-              </button>
-            ))}
-          </div>
+          {!hideLangToggle && (
+            <div className="flex items-center gap-1.5">
+              {FLAGS.map(({ lang: l, flag, label }) => (
+                <button
+                  key={l}
+                  onClick={() => setLang(l)}
+                  title={label}
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 1,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '1px 2px',
+                    borderRadius: 3,
+                    opacity: lang === l ? 1 : 0.35,
+                    transition: 'opacity 0.15s',
+                    filter: lang === l ? 'drop-shadow(0 0 4px rgba(0,180,216,0.5))' : 'none',
+                  }}
+                  onMouseEnter={e => { if (lang !== l) (e.currentTarget as HTMLButtonElement).style.opacity = '0.65' }}
+                  onMouseLeave={e => { if (lang !== l) (e.currentTarget as HTMLButtonElement).style.opacity = '0.35' }}
+                >
+                  {flag}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <span className="text-[10px] tracking-widest hidden sm:block" style={{ color: 'rgba(255,255,255,0.2)' }}>
           {t.subtitle}
