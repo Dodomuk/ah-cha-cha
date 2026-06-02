@@ -1,4 +1,4 @@
-"""yfinance로 국가별 주요 종목 무버스, 뉴스, 상세 데이터를 수집한다."""
+"""Finnhub으로 국가별 주요 종목 무버스, 뉴스, 상세 데이터를 수집한다."""
 
 import logging
 import re
@@ -7,13 +7,14 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from typing import Optional
 
-import yfinance as yf
+import requests
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.services.stock_config import STOCKS_BY_COUNTRY, SECTORS, TICKER_TO_SPREAD
 from app.models.market import CountryMoversSnapshot
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,8 @@ _movers_cache: dict[str, tuple[datetime, dict]] = {}
 _detail_cache: dict[str, tuple[datetime, dict]] = {}
 MOVERS_TTL = timedelta(minutes=60)  # 1시간 — Rate Limit 방지
 DETAIL_TTL = timedelta(minutes=30)  # 30분 — Rate Limit 방지
+
+FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 
 def _cache_get(cache: dict, key: str, ttl: timedelta):
@@ -70,6 +73,88 @@ def _highlight(text: str) -> list[dict]:
     return segments if segments else [{"text": text, "highlight": False}]
 
 
+# ── Finnhub API 호출 ──────────────────────────────────────────────────
+
+def _finnhub_quote(ticker: str) -> dict | None:
+    """현재 가격 정보"""
+    try:
+        resp = requests.get(
+            f"{FINNHUB_BASE}/quote",
+            params={"symbol": ticker, "token": settings.finnhub_api_key},
+            timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Quote API error for {ticker}: {e}")
+        return None
+
+
+def _finnhub_candle(ticker: str, days: int = 5) -> dict | None:
+    """일봉 데이터"""
+    try:
+        now = datetime.now(timezone.utc)
+        to_ts = int(now.timestamp())
+        from_ts = int((now - timedelta(days=days)).timestamp())
+
+        resp = requests.get(
+            f"{FINNHUB_BASE}/stock/candle",
+            params={
+                "symbol": ticker,
+                "resolution": "D",
+                "from": from_ts,
+                "to": to_ts,
+                "token": settings.finnhub_api_key,
+            },
+            timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Candle API error for {ticker}: {e}")
+        return None
+
+
+def _finnhub_news(ticker: str) -> list[dict] | None:
+    """회사 뉴스 (최대 8개)"""
+    try:
+        now = datetime.now(timezone.utc)
+        from_date = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+        to_date = now.strftime("%Y-%m-%d")
+
+        resp = requests.get(
+            f"{FINNHUB_BASE}/company-news",
+            params={
+                "symbol": ticker,
+                "from": from_date,
+                "to": to_date,
+                "token": settings.finnhub_api_key,
+            },
+            timeout=10
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"News API error for {ticker}: {e}")
+        return None
+
+
+def _finnhub_profile(ticker: str) -> dict | None:
+    """회사 프로필"""
+    try:
+        resp = requests.get(
+            f"{FINNHUB_BASE}/stock/profile2",
+            params={"symbol": ticker, "token": settings.finnhub_api_key},
+            timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Profile API error for {ticker}: {e}")
+        return None
+
+
 # ── 무버스 조회 ──────────────────────────────────────────────────────
 
 def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
@@ -94,64 +179,26 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
     if not stocks:
         return {"supported": False, "country_code": country_code}
 
-    tickers = [s["ticker"] for s in stocks]
     ticker_map = {s["ticker"]: s for s in stocks}
-
-    try:
-        # 한 번의 배치 다운로드로 Rate Limit 방지
-        raw = yf.download(
-            tickers, period="5d", interval="1d",
-            auto_adjust=True, progress=False, group_by="ticker",
-        )
-    except Exception as e:
-        # Rate Limit 시 stale cache라도 반환
-        stale = _movers_cache.get(country_code)
-        if stale:
-            logger.warning(f"Returning stale movers cache for {country_code} due to: {e}")
-            return stale[1]
-        logger.error(f"Batch download failed for {country_code}: {e}")
-        return {"supported": True, "error": str(e), "gainers": [], "losers": [], "all": []}
-
-    if raw.empty:
-        # 빈 데이터 → stale cache 확인
-        stale = _movers_cache.get(country_code)
-        if stale:
-            logger.warning(f"Returning stale movers cache for {country_code} (empty download)")
-            return stale[1]
-        logger.warning(f"Batch download returned empty data for {country_code}")
-        return {"supported": True, "gainers": [], "losers": [], "all": []}
-
     results = []
+
+    # 각 종목별로 Finnhub Quote 호출 (5일 가격 변화 계산)
     for info in stocks:
         ticker = info["ticker"]
         try:
-            # 단일 티커면 flat columns, 복수면 MultiIndex (ticker, OHLC)
-            if len(tickers) == 1:
-                df = raw
-            else:
-                # group_by="ticker" → MultiIndex: (ticker, column)
-                try:
-                    df = raw[ticker]
-                except (KeyError, TypeError):
-                    logger.warning(f"No data returned for {ticker}")
-                    continue
-
-            if df is None or df.empty:
-                logger.warning(f"Empty dataframe for {ticker}")
+            quote = _finnhub_quote(ticker)
+            if not quote or "c" not in quote:
+                logger.warning(f"No quote data for {ticker}")
                 continue
 
-            # Close 컬럼 추출
-            try:
-                closes = df["Close"].dropna()
-            except KeyError:
-                logger.warning(f"No Close column for {ticker}")
+            candle = _finnhub_candle(ticker, days=5)
+            if not candle or "c" not in candle or len(candle["c"]) < 2:
+                logger.warning(f"Not enough candle data for {ticker}")
                 continue
 
-            if len(closes) < 2:
-                continue
-
-            current = float(closes.iloc[-1])
-            prev = float(closes.iloc[-2])
+            closes = candle["c"]
+            current = closes[-1]
+            prev = closes[-2]
             change_pct = ((current - prev) / prev * 100) if prev else 0.0
 
             results.append({
@@ -168,6 +215,8 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
         except Exception as e:
             logger.warning(f"Error processing {ticker}: {e}")
             continue
+
+        time.sleep(0.2)  # API rate limit 방지
 
     results.sort(key=lambda x: x["change_pct"], reverse=True)
 
@@ -239,79 +288,76 @@ def get_stock_detail(ticker: str) -> dict:
         return cached
 
     try:
-        t = yf.Ticker(ticker)
-        info = t.info or {}
-    except Exception as e:
-        # Rate Limit 에러 시 캐시된 데이터라도 반환 (TTL 무시)
-        stale = _detail_cache.get(ticker)
-        if stale:
-            logger.warning(f"Returning stale cache for {ticker} due to error: {e}")
-            return stale[1]
-        logger.error(f"get_stock_detail failed for {ticker}: {e}")
-        return {"ticker": ticker, "error": str(e)}
+        quote = _finnhub_quote(ticker)
+        profile = _finnhub_profile(ticker)
+        candle = _finnhub_candle(ticker, days=30)
+        news_list = _finnhub_news(ticker)
 
-    try:
+        if not quote:
+            logger.warning(f"No quote data for {ticker}")
+            return {"ticker": ticker, "error": "No data available"}
 
         # 30일 가격 이력
-        hist = t.history(period="30d", interval="1d", auto_adjust=True)
         history = []
-        if not hist.empty:
-            for ts, row in hist.iterrows():
-                close_val = row["Close"]
-                if hasattr(close_val, "item"):
-                    close_val = close_val.item()
+        if candle and "c" in candle and len(candle["c"]) > 0:
+            closes = candle["c"]
+            times = candle.get("t", [])
+            for i, close in enumerate(closes):
+                ts = times[i] if i < len(times) else None
+                if ts:
+                    date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                else:
+                    date_str = None
+
                 history.append({
-                    "date": ts.strftime("%Y-%m-%d"),
-                    "close": round(float(close_val), 4) if close_val == close_val else None,
-                    "open": round(float(row["Open"]), 4) if "Open" in row else None,
-                    "high": round(float(row["High"]), 4) if "High" in row else None,
-                    "low": round(float(row["Low"]), 4) if "Low" in row else None,
-                    "volume": int(row["Volume"]) if "Volume" in row else None,
+                    "date": date_str,
+                    "close": round(close, 4) if close else None,
+                    "open": round(candle["o"][i], 4) if "o" in candle and i < len(candle["o"]) else None,
+                    "high": round(candle["h"][i], 4) if "h" in candle and i < len(candle["h"]) else None,
+                    "low": round(candle["l"][i], 4) if "l" in candle and i < len(candle["l"]) else None,
+                    "volume": int(candle["v"][i]) if "v" in candle and i < len(candle["v"]) else None,
                 })
 
         # 뉴스 (최대 8개)
-        news_raw = []
-        try:
-            news_raw = t.news[:8] if t.news else []
-        except Exception:
-            pass
-
         news = []
-        for n in news_raw:
-            title = n.get("title", "")
-            if not title:
-                continue
-            news.append({
-                "title": title,
-                "segments": _highlight(title),
-                "link": n.get("link", ""),
-                "publisher": n.get("publisher", ""),
-                "published_at": n.get("providerPublishTime", 0),
-            })
+        if news_list:
+            for n in news_list[:8]:
+                title = n.get("headline", "")
+                if not title:
+                    continue
+                news.append({
+                    "title": title,
+                    "segments": _highlight(title),
+                    "link": n.get("url", ""),
+                    "publisher": n.get("source", ""),
+                    "published_at": n.get("datetime", 0),
+                })
 
         # 글로벌 스프레드
         spread = TICKER_TO_SPREAD.get(ticker)
 
         # 핵심 지표
-        def safe(key, default=None):
-            v = info.get(key, default)
+        def safe(obj, key, default=None):
+            if not obj:
+                return default
+            v = obj.get(key, default)
             return v if v is not None and v != "N/A" else default
 
         data = {
             "ticker": ticker,
-            "name": safe("longName") or safe("shortName") or ticker,
-            "sector": safe("sector", ""),
-            "industry": safe("industry", ""),
-            "current_price": safe("currentPrice") or safe("regularMarketPrice"),
-            "change_pct": safe("regularMarketChangePercent"),
-            "market_cap": safe("marketCap"),
-            "pe_ratio": safe("trailingPE"),
-            "forward_pe": safe("forwardPE"),
-            "52w_high": safe("fiftyTwoWeekHigh"),
-            "52w_low": safe("fiftyTwoWeekLow"),
-            "avg_volume": safe("averageVolume"),
-            "dividend_yield": safe("dividendYield"),
-            "beta": safe("beta"),
+            "name": safe(profile, "name") or safe(quote, "name") or ticker,
+            "sector": safe(profile, "finnhubIndustry", ""),
+            "industry": safe(profile, "finnhubIndustry", ""),
+            "current_price": safe(quote, "c"),
+            "change_pct": safe(quote, "dp"),  # change percent
+            "market_cap": safe(profile, "marketCapitalization"),
+            "pe_ratio": safe(profile, "pe"),
+            "forward_pe": None,
+            "52w_high": safe(quote, "h52"),
+            "52w_low": safe(quote, "l52"),
+            "avg_volume": safe(profile, "shareOutstanding"),
+            "dividend_yield": None,
+            "beta": None,
             "history": history,
             "news": news,
             "spread": spread,
@@ -320,20 +366,20 @@ def get_stock_detail(ticker: str) -> dict:
         _cache_set(_detail_cache, ticker, data)
         return data
 
-    except Exception as inner_e:
+    except Exception as e:
         stale = _detail_cache.get(ticker)
         if stale:
-            logger.warning(f"Returning stale cache for {ticker} due to processing error: {inner_e}")
+            logger.warning(f"Returning stale cache for {ticker} due to error: {e}")
             return stale[1]
-        logger.error(f"get_stock_detail processing failed for {ticker}: {inner_e}")
-        return {"ticker": ticker, "error": str(inner_e)}
+        logger.error(f"get_stock_detail failed for {ticker}: {e}")
+        return {"ticker": ticker, "error": str(e)}
 
 
 # ── 전체 무버스 프리패치 (스케줄러 전용) ─────────────────────────────
 
 def prefetch_all_movers(db: Session) -> int:
     """모든 지원 국가의 무버스 데이터를 미리 가져와 DB에 저장한다.
-    국가 간 5초 딜레이로 Rate Limit 방지."""
+    국가 간 2초 딜레이로 Rate Limit 방지."""
     countries = list(STOCKS_BY_COUNTRY.keys())
     success = 0
     for code in countries:
@@ -346,6 +392,6 @@ def prefetch_all_movers(db: Session) -> int:
                 logger.warning(f"Prefetch movers empty: {code}")
         except Exception as e:
             logger.error(f"Prefetch movers failed for {code}: {e}")
-        time.sleep(5)  # Yahoo Finance Rate Limit 방지
+        time.sleep(2)  # Finnhub Rate Limit 방지
     logger.info(f"Movers prefetch complete: {success}/{len(countries)} countries")
     return success
