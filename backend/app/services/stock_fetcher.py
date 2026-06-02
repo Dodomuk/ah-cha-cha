@@ -4,10 +4,15 @@ import logging
 import re
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+from typing import Optional
 
 import yfinance as yf
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.services.stock_config import STOCKS_BY_COUNTRY, SECTORS, TICKER_TO_SPREAD
+from app.models.market import CountryMoversSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +71,25 @@ def _highlight(text: str) -> list[dict]:
 
 # ── 무버스 조회 ──────────────────────────────────────────────────────
 
-def get_country_movers(country_code: str) -> dict:
-    # 캐시 우선 반환
-    cached = _cache_get(_movers_cache, country_code, MOVERS_TTL)
+def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
+    code = country_code.upper()
+
+    # 1. 인메모리 캐시 우선
+    cached = _cache_get(_movers_cache, code, MOVERS_TTL)
     if cached:
         return cached
 
-    stocks = STOCKS_BY_COUNTRY.get(country_code.upper(), [])
+    # 2. DB 캐시 확인 (1시간 이내)
+    if db:
+        row = db.execute(
+            select(CountryMoversSnapshot).where(CountryMoversSnapshot.country_code == code)
+        ).scalar_one_or_none()
+
+        if row and (datetime.now(timezone.utc) - row.updated_at) < MOVERS_TTL:
+            _cache_set(_movers_cache, code, row.data)  # 인메모리에도 저장
+            return row.data
+
+    stocks = STOCKS_BY_COUNTRY.get(code, [])
     if not stocks:
         return {"supported": False, "country_code": country_code}
 
@@ -183,7 +200,7 @@ def get_country_movers(country_code: str) -> dict:
 
     data = {
         "supported": True,
-        "country_code": country_code,
+        "country_code": code,
         "leading_sector": leading_sector,
         "leading_sector_ko": sector_ko,
         "leading_sector_color": sector_color,
@@ -196,7 +213,19 @@ def get_country_movers(country_code: str) -> dict:
         "all": results,
     }
 
-    _cache_set(_movers_cache, country_code, data)
+    # 인메모리 + DB 캐시 모두 저장
+    _cache_set(_movers_cache, code, data)
+    if db:
+        stmt = pg_insert(CountryMoversSnapshot).values(
+            country_code=code, data=data, updated_at=datetime.now(timezone.utc)
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["country_code"],
+            set_={"data": stmt.excluded.data, "updated_at": stmt.excluded.updated_at}
+        )
+        db.execute(stmt)
+        db.commit()
+
     return data
 
 

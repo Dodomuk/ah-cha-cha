@@ -50,10 +50,10 @@ def get_country_market(country_code: str, db: Session = Depends(get_db)):
 
 
 @router.get("/market/country/{country_code}/movers")
-def get_country_movers(country_code: str):
+def get_country_movers_route(country_code: str, db: Session = Depends(get_db)):
     """국가별 오늘 주요 종목 무버스 + 주도 섹터 요약."""
     from app.services.stock_fetcher import get_country_movers
-    return get_country_movers(country_code.upper())
+    return get_country_movers(country_code.upper(), db=db)
 
 
 @router.get("/market/stock/{ticker:path}/detail")

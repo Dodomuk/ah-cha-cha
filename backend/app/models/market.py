@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, Boolean, DateTime, Date, UniqueConstraint
+from sqlalchemy import String, Float, Boolean, DateTime, Date, UniqueConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
 from app.models.database import Base
 
@@ -38,3 +38,15 @@ class MarketHistory(Base):
     low: Mapped[float | None] = mapped_column(Float)
     close: Mapped[float | None] = mapped_column(Float)
     volume: Mapped[float | None] = mapped_column(Float)
+
+
+class CountryMoversSnapshot(Base):
+    """국가별 종목 무버스 스냅샷 — Rate Limit 방지용 DB 캐시"""
+    __tablename__ = "country_movers_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False, unique=True)
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False)  # 전체 movers 응답 JSON
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
