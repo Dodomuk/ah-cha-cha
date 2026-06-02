@@ -23,28 +23,31 @@ function getCountryCode(props: Record<string, unknown>): string {
 }
 
 /** % 등락률 → RGB 색상 */
-function changePctToColor(pct: number | null): { fill: string; stroke: string; glow: string } {
-  if (pct === null) return { fill: '#1c2e2e', stroke: '#2e5555', glow: 'transparent' }
+interface ColorResult {
+  fill: string
+  stroke: string
+  glow: string
+  glowIntensity: number  // 0~1, 네온 글로우 강도
+}
+
+function changePctToColor(pct: number | null): ColorResult {
+  if (pct === null) return { fill: '#1c2e2e', stroke: '#2e5555', glow: 'transparent', glowIntensity: 0 }
 
   const abs = Math.abs(pct)
-  const intensity = Math.min(abs / 2, 1) // 2% 이상이면 최대 채도 (더 선명하게)
+  // 등락폭이 클수록 네온 강도 증가 (±5% 이상이면 최대)
+  const glowIntensity = Math.min(abs / 5, 1)
 
-  if (pct > 0) {
-    const g = Math.round(160 + intensity * 95)   // 160 ~ 255
-    const rb = Math.round(20 - intensity * 20)   // 20 ~ 0
-    return {
-      fill: `rgba(${rb},${g},${rb},0.55)`,
-      stroke: `rgb(${rb},${g},${rb})`,
-      glow: `rgba(0,${g},0,0.6)`,
-    }
+  // 5단계 색상 구간
+  if (pct <= -3) {
+    return { fill: 'rgba(210,0,30,0.70)',   stroke: '#FF1744', glow: '#FF1744', glowIntensity }
+  } else if (pct <= -1) {
+    return { fill: 'rgba(255,90,0,0.65)',   stroke: '#FF6D00', glow: '#FF6D00', glowIntensity }
+  } else if (pct < 1) {
+    return { fill: 'rgba(220,185,0,0.55)',  stroke: '#FFD600', glow: '#FFD600', glowIntensity }
+  } else if (pct < 3) {
+    return { fill: 'rgba(30,200,100,0.60)', stroke: '#69F0AE', glow: '#69F0AE', glowIntensity }
   } else {
-    const r = Math.round(160 + intensity * 95)
-    const gb = Math.round(20 - intensity * 20)
-    return {
-      fill: `rgba(${r},${gb},${gb},0.55)`,
-      stroke: `rgb(${r},${gb},${gb})`,
-      glow: `rgba(${r},0,0,0.6)`,
-    }
+    return { fill: 'rgba(0,210,90,0.70)',   stroke: '#00E676', glow: '#00E676', glowIntensity }
   }
 }
 
@@ -88,7 +91,7 @@ export default function MarketWorldMap({ markets, onCountryClick }: MarketWorldM
       const snap = mkt[code]
       const hasData = !!snap
       const isHovered = code === hoveredCode
-      const { fill, stroke, glow } = changePctToColor(snap?.change_pct ?? null)
+      const { fill, stroke, glow, glowIntensity } = changePctToColor(snap?.change_pct ?? null)
 
       let path2D = pathCacheRef.current.get(i)
       if (!path2D) {
@@ -96,23 +99,26 @@ export default function MarketWorldMap({ markets, onCountryClick }: MarketWorldM
         pathCacheRef.current.set(i, path2D)
       }
 
+      // fill — 등락폭 클수록 글로우 강해짐
       ctx.save()
       if (hasData) {
-        ctx.shadowBlur = isHovered ? 20 : 8
+        const baseBlur = isHovered ? 24 : 6
+        ctx.shadowBlur = baseBlur + glowIntensity * 20   // max: hover 44, normal 26
         ctx.shadowColor = glow
       }
       ctx.fillStyle = isHovered && !hasData ? '#2a4545' : fill
       ctx.fill(path2D)
       ctx.restore()
 
+      // stroke — 등락폭 클수록 테두리 글로우 강해짐
       ctx.save()
       if (hasData && isHovered) {
-        ctx.shadowBlur = 14
+        ctx.shadowBlur = 12 + glowIntensity * 16
         ctx.shadowColor = glow
         ctx.strokeStyle = stroke
         ctx.lineWidth = (1.5 / (window.devicePixelRatio || 1)) * 1.8
       } else if (hasData) {
-        ctx.shadowBlur = 4
+        ctx.shadowBlur = 2 + glowIntensity * 10
         ctx.shadowColor = glow
         ctx.strokeStyle = stroke
         ctx.lineWidth = 1 / (window.devicePixelRatio || 1)

@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useMarkets } from '@/hooks/useMarketData'
 import { useLangStore } from '@/lib/langStore'
 import MarketPanel from '@/components/market/MarketPanel'
@@ -21,6 +21,12 @@ function fmtTime(isoStr: string | undefined, locale: string): string {
 export default function HomePage() {
   const { data, isFetching, isLoading } = useMarkets()
   const { lang, setLang } = useLangStore()
+
+  useEffect(() => {
+    document.title = lang === 'ko'
+      ? '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시'
+      : 'Ah-Cha-Cha — World Markets at a Glance'
+  }, [lang])
 
   const [panelOpen, setPanelOpen] = useState(false)
   const [selectedCode, setSelectedCode] = useState<string | null>(null)
