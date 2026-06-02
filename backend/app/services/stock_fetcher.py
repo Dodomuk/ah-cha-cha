@@ -1,4 +1,4 @@
-"""Alpha Vantage로 국가별 주요 종목 무버스, 뉴스, 상세 데이터를 수집한다."""
+"""yfinance로 국가별 주요 종목 무버스, 뉴스, 상세 데이터를 수집한다."""
 
 import logging
 import re
@@ -7,14 +7,13 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from typing import Optional
 
-import requests
+import yfinance as yf
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.services.stock_config import STOCKS_BY_COUNTRY, SECTORS, TICKER_TO_SPREAD
 from app.models.market import CountryMoversSnapshot
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +22,6 @@ _movers_cache: dict[str, tuple[datetime, dict]] = {}
 _detail_cache: dict[str, tuple[datetime, dict]] = {}
 MOVERS_TTL = timedelta(minutes=60)
 DETAIL_TTL = timedelta(minutes=30)
-
-ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query"
 
 
 def _cache_get(cache: dict, key: str, ttl: timedelta):
@@ -68,81 +65,6 @@ def _highlight(text: str) -> list[dict]:
     return segments if segments else [{"text": text, "highlight": False}]
 
 
-# ── Alpha Vantage API 호출 ───────────────────────────────────────────
-
-def _alpha_vantage_quote(ticker: str) -> dict | None:
-    """현재 가격 정보"""
-    try:
-        resp = requests.get(
-            ALPHA_VANTAGE_BASE,
-            params={
-                "function": "GLOBAL_QUOTE",
-                "symbol": ticker,
-                "apikey": settings.alpha_vantage_api_key,
-            },
-            timeout=10
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        gq = data.get("Global Quote", {})
-
-        if not gq or "05. price" not in gq:
-            logger.warning(f"Quote API returned empty data for {ticker}: {data}")
-            return None
-
-        return {
-            "price": float(gq.get("05. price", 0)),
-            "prev_close": float(gq.get("08. previous close", 0)),
-            "change_pct": float(gq.get("10. change percent", "0%").rstrip("%") or 0),
-            "open": float(gq.get("01. open", 0)),
-            "high": float(gq.get("03. high", 0)),
-            "low": float(gq.get("04. low", 0)),
-            "volume": int(gq.get("06. volume", 0) or 0),
-        }
-    except Exception as e:
-        logger.error(f"Quote API error for {ticker}: {e}")
-        return None
-
-
-def _alpha_vantage_timeseries(ticker: str, days: int = 5) -> dict | None:
-    """일봉 데이터"""
-    try:
-        resp = requests.get(
-            ALPHA_VANTAGE_BASE,
-            params={
-                "function": "TIME_SERIES_DAILY",
-                "symbol": ticker,
-                "outputsize": "full",
-                "apikey": settings.alpha_vantage_api_key,
-            },
-            timeout=10
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        ts = data.get("Time Series", {})
-
-        if not ts:
-            logger.warning(f"TimeSeries API returned empty data for {ticker}: {data}")
-            return None
-
-        # 최근 N일의 데이터만 반환
-        sorted_dates = sorted(ts.keys(), reverse=True)[:days]
-        result = {}
-        for date_str in sorted_dates:
-            result[date_str] = {
-                "open": float(ts[date_str].get("1. open", 0)),
-                "high": float(ts[date_str].get("2. high", 0)),
-                "low": float(ts[date_str].get("3. low", 0)),
-                "close": float(ts[date_str].get("4. close", 0)),
-                "volume": int(ts[date_str].get("5. volume", 0) or 0),
-            }
-
-        return result if result else None
-    except Exception as e:
-        logger.error(f"TimeSeries API error for {ticker}: {e}")
-        return None
-
-
 # ── 무버스 조회 ──────────────────────────────────────────────────────
 
 def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
@@ -167,27 +89,58 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
     if not stocks:
         return {"supported": False, "country_code": country_code}
 
+    tickers = [s["ticker"] for s in stocks]
     ticker_map = {s["ticker"]: s for s in stocks}
-    results = []
 
-    # 각 종목별로 Alpha Vantage Quote 호출
+    try:
+        raw = yf.download(
+            tickers, period="5d", interval="1d",
+            auto_adjust=True, progress=False, group_by="ticker",
+        )
+    except Exception as e:
+        stale = _movers_cache.get(country_code)
+        if stale:
+            logger.warning(f"Returning stale movers cache for {country_code} due to: {e}")
+            return stale[1]
+        logger.error(f"Batch download failed for {country_code}: {e}")
+        return {"supported": True, "error": str(e), "gainers": [], "losers": [], "all": []}
+
+    if raw.empty:
+        stale = _movers_cache.get(country_code)
+        if stale:
+            logger.warning(f"Returning stale movers cache for {country_code} (empty download)")
+            return stale[1]
+        logger.warning(f"Batch download returned empty data for {country_code}")
+        return {"supported": True, "gainers": [], "losers": [], "all": []}
+
+    results = []
     for info in stocks:
         ticker = info["ticker"]
         try:
-            quote = _alpha_vantage_quote(ticker)
-            if not quote:
-                logger.warning(f"No quote data for {ticker}")
+            if len(tickers) == 1:
+                df = raw
+            else:
+                try:
+                    df = raw[ticker]
+                except (KeyError, TypeError):
+                    logger.warning(f"No data returned for {ticker}")
+                    continue
+
+            if df is None or df.empty:
+                logger.warning(f"Empty dataframe for {ticker}")
                 continue
 
-            ts = _alpha_vantage_timeseries(ticker, days=5)
-            if not ts or len(ts) < 2:
-                logger.warning(f"Not enough timeseries data for {ticker}")
+            try:
+                closes = df["Close"].dropna()
+            except KeyError:
+                logger.warning(f"No Close column for {ticker}")
                 continue
 
-            # 최근 2일로 변화율 계산
-            sorted_dates = sorted(ts.keys(), reverse=True)
-            current = ts[sorted_dates[0]]["close"]
-            prev = ts[sorted_dates[1]]["close"]
+            if len(closes) < 2:
+                continue
+
+            current = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2])
             change_pct = ((current - prev) / prev * 100) if prev else 0.0
 
             results.append({
@@ -204,8 +157,6 @@ def get_country_movers(country_code: str, db: Optional[Session] = None) -> dict:
         except Exception as e:
             logger.warning(f"Error processing {ticker}: {e}")
             continue
-
-        time.sleep(0.25)  # Alpha Vantage 분당 5 요청 제한 (0.2초 * 5 = 1초마다 5개)
 
     results.sort(key=lambda x: x["change_pct"], reverse=True)
 
@@ -275,53 +226,8 @@ def get_stock_detail(ticker: str) -> dict:
         return cached
 
     try:
-        quote = _alpha_vantage_quote(ticker)
-        ts = _alpha_vantage_timeseries(ticker, days=30)
-
-        if not quote:
-            logger.warning(f"No quote data for {ticker}")
-            return {"ticker": ticker, "error": "No data available"}
-
-        # 30일 가격 이력
-        history = []
-        if ts:
-            for date_str in sorted(ts.keys()):
-                data = ts[date_str]
-                history.append({
-                    "date": date_str,
-                    "close": round(data["close"], 4),
-                    "open": round(data["open"], 4),
-                    "high": round(data["high"], 4),
-                    "low": round(data["low"], 4),
-                    "volume": data["volume"],
-                })
-
-        # 글로벌 스프레드
-        spread = TICKER_TO_SPREAD.get(ticker)
-
-        data = {
-            "ticker": ticker,
-            "name": ticker,
-            "sector": "",
-            "industry": "",
-            "current_price": round(quote["price"], 2),
-            "change_pct": round(quote["change_pct"], 2),
-            "market_cap": None,
-            "pe_ratio": None,
-            "forward_pe": None,
-            "52w_high": None,
-            "52w_low": None,
-            "avg_volume": round(quote["volume"], 0),
-            "dividend_yield": None,
-            "beta": None,
-            "history": history,
-            "news": [],  # Alpha Vantage 무료는 뉴스 미지원
-            "spread": spread,
-        }
-
-        _cache_set(_detail_cache, ticker, data)
-        return data
-
+        t = yf.Ticker(ticker)
+        info = t.info or {}
     except Exception as e:
         stale = _detail_cache.get(ticker)
         if stale:
@@ -329,6 +235,79 @@ def get_stock_detail(ticker: str) -> dict:
             return stale[1]
         logger.error(f"get_stock_detail failed for {ticker}: {e}")
         return {"ticker": ticker, "error": str(e)}
+
+    try:
+        hist = t.history(period="30d", interval="1d", auto_adjust=True)
+        history = []
+        if not hist.empty:
+            for ts, row in hist.iterrows():
+                close_val = row["Close"]
+                if hasattr(close_val, "item"):
+                    close_val = close_val.item()
+                history.append({
+                    "date": ts.strftime("%Y-%m-%d"),
+                    "close": round(float(close_val), 4) if close_val == close_val else None,
+                    "open": round(float(row["Open"]), 4) if "Open" in row else None,
+                    "high": round(float(row["High"]), 4) if "High" in row else None,
+                    "low": round(float(row["Low"]), 4) if "Low" in row else None,
+                    "volume": int(row["Volume"]) if "Volume" in row else None,
+                })
+
+        news_raw = []
+        try:
+            news_raw = t.news[:8] if t.news else []
+        except Exception:
+            pass
+
+        news = []
+        for n in news_raw:
+            title = n.get("title", "")
+            if not title:
+                continue
+            news.append({
+                "title": title,
+                "segments": _highlight(title),
+                "link": n.get("link", ""),
+                "publisher": n.get("publisher", ""),
+                "published_at": n.get("providerPublishTime", 0),
+            })
+
+        spread = TICKER_TO_SPREAD.get(ticker)
+
+        def safe(key, default=None):
+            v = info.get(key, default)
+            return v if v is not None and v != "N/A" else default
+
+        data = {
+            "ticker": ticker,
+            "name": safe("longName") or safe("shortName") or ticker,
+            "sector": safe("sector", ""),
+            "industry": safe("industry", ""),
+            "current_price": safe("currentPrice") or safe("regularMarketPrice"),
+            "change_pct": safe("regularMarketChangePercent"),
+            "market_cap": safe("marketCap"),
+            "pe_ratio": safe("trailingPE"),
+            "forward_pe": safe("forwardPE"),
+            "52w_high": safe("fiftyTwoWeekHigh"),
+            "52w_low": safe("fiftyTwoWeekLow"),
+            "avg_volume": safe("averageVolume"),
+            "dividend_yield": safe("dividendYield"),
+            "beta": safe("beta"),
+            "history": history,
+            "news": news,
+            "spread": spread,
+        }
+
+        _cache_set(_detail_cache, ticker, data)
+        return data
+
+    except Exception as inner_e:
+        stale = _detail_cache.get(ticker)
+        if stale:
+            logger.warning(f"Returning stale cache for {ticker} due to processing error: {inner_e}")
+            return stale[1]
+        logger.error(f"get_stock_detail processing failed for {ticker}: {inner_e}")
+        return {"ticker": ticker, "error": str(inner_e)}
 
 
 # ── 전체 무버스 프리패치 (스케줄러 전용) ─────────────────────────────
@@ -347,6 +326,6 @@ def prefetch_all_movers(db: Session) -> int:
                 logger.warning(f"Prefetch movers empty: {code}")
         except Exception as e:
             logger.error(f"Prefetch movers failed for {code}: {e}")
-        time.sleep(1)  # Alpha Vantage rate limit (분당 5 요청)
+        time.sleep(5)
     logger.info(f"Movers prefetch complete: {success}/{len(countries)} countries")
     return success

@@ -63,28 +63,6 @@ def get_stock_detail(ticker: str):
     return get_stock_detail(ticker)
 
 
-@router.get("/test/alpha-vantage/{ticker}")
-def test_alpha_vantage(ticker: str):
-    """Alpha Vantage API 테스트"""
-    import requests
-    try:
-        resp = requests.get(
-            "https://www.alphavantage.co/query",
-            params={
-                "function": "GLOBAL_QUOTE",
-                "symbol": ticker,
-                "apikey": settings.alpha_vantage_api_key,
-            },
-            timeout=10
-        )
-        return {
-            "status_code": resp.status_code,
-            "data": resp.json()
-        }
-    except Exception as e:
-        return {"error": str(e), "type": type(e).__name__}
-
-
 @router.post("/internal/market/fetch")
 def trigger_market_fetch(
     x_internal_key: str = Header(alias="X-Internal-Key"),

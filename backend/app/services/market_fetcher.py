@@ -1,21 +1,17 @@
-"""Alpha Vantage을 이용해 전 세계 주요 지수 데이터를 수집한다."""
+"""yfinance를 이용해 전 세계 주요 지수 데이터를 수집한다."""
 
 import logging
-import time
 from datetime import datetime, timezone, date, timedelta
 
-import requests
+import yfinance as yf
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.market import MarketSnapshot, MarketHistory
 from app.services.market_config import MARKET_CONFIG
-from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query"
 
 
 def _is_market_open(open_utc: str, close_utc: str) -> bool:
@@ -31,47 +27,24 @@ def _is_market_open(open_utc: str, close_utc: str) -> bool:
     return now >= open_t or now <= close_t
 
 
-def _alpha_vantage_timeseries(ticker: str, days: int = 5) -> dict | None:
-    """Alpha Vantage 일봉 데이터"""
-    try:
-        resp = requests.get(
-            ALPHA_VANTAGE_BASE,
-            params={
-                "function": "TIME_SERIES_DAILY",
-                "symbol": ticker,
-                "outputsize": "full",
-                "apikey": settings.alpha_vantage_api_key,
-            },
-            timeout=10
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        ts = data.get("Time Series", {})
-
-        if not ts:
-            logger.warning(f"TimeSeries API returned empty data for {ticker}: {data}")
-            return None
-
-        # 최근 N일의 데이터만 반환
-        sorted_dates = sorted(ts.keys(), reverse=True)[:days]
-        result = {}
-        for date_str in sorted_dates:
-            result[date_str] = {
-                "open": float(ts[date_str].get("1. open", 0)),
-                "high": float(ts[date_str].get("2. high", 0)),
-                "low": float(ts[date_str].get("3. low", 0)),
-                "close": float(ts[date_str].get("4. close", 0)),
-                "volume": int(ts[date_str].get("5. volume", 0) or 0),
-            }
-
-        return result if result else None
-    except Exception as e:
-        logger.error(f"TimeSeries API error for {ticker}: {e}")
-        return None
-
-
 def fetch_all_markets(db: Session) -> int:
-    """모든 시장 데이터를 Alpha Vantage으로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
+    """모든 시장 데이터를 yfinance로 가져와 DB에 upsert한다. 업데이트된 건수 반환."""
+    tickers = [m["ticker"] for m in MARKET_CONFIG]
+
+    try:
+        raw = yf.download(
+            tickers,
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+    except Exception as e:
+        logger.error(f"yfinance download failed: {e}")
+        return 0
+
     updated = 0
     now = datetime.now(timezone.utc)
 
@@ -79,20 +52,25 @@ def fetch_all_markets(db: Session) -> int:
         ticker = cfg["ticker"]
         code = cfg["country_code"]
         try:
-            ts = _alpha_vantage_timeseries(ticker, days=5)
-            if not ts or len(ts) < 2:
-                logger.warning(f"Not enough timeseries data for {ticker} ({code})")
+            if len(tickers) == 1:
+                df = raw
+            else:
+                df = raw[ticker] if ticker in raw.columns.get_level_values(0) else None
+
+            if df is None or df.empty:
+                logger.warning(f"No data for {ticker} ({code})")
                 continue
 
-            # 최근 2일로 변화율 계산
-            sorted_dates = sorted(ts.keys(), reverse=True)
-            current = ts[sorted_dates[0]]["close"]
-            prev = ts[sorted_dates[1]]["close"]
+            closes = df["Close"].dropna()
+            if len(closes) < 2:
+                continue
+
+            current = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2])
             change_abs = current - prev
             change_pct = (change_abs / prev) * 100 if prev else 0.0
             is_open = _is_market_open(cfg["open_utc"], cfg["close_utc"])
 
-            # upsert market_snapshots
             snap_values = dict(
                 country_code=code,
                 index_name=cfg["index_name"],
@@ -112,19 +90,16 @@ def fetch_all_markets(db: Session) -> int:
             )
             db.execute(stmt)
 
-            # market_history upsert (최근 5일치)
-            for date_str in sorted(ts.keys()):
-                data = ts[date_str]
-                d = datetime.strptime(date_str, "%Y-%m-%d").date()
-
+            for ts, row in df.iterrows():
+                d = ts.date() if hasattr(ts, "date") else ts
                 hist_values = dict(
                     country_code=code,
                     date=d,
-                    open=data["open"],
-                    high=data["high"],
-                    low=data["low"],
-                    close=data["close"],
-                    volume=data["volume"],
+                    open=float(row["Open"]) if "Open" in row else None,
+                    high=float(row["High"]) if "High" in row else None,
+                    low=float(row["Low"]) if "Low" in row else None,
+                    close=float(row["Close"]),
+                    volume=float(row["Volume"]) if "Volume" in row else None,
                 )
                 hist_stmt = pg_insert(MarketHistory).values(**hist_values)
                 hist_stmt = hist_stmt.on_conflict_do_nothing()
@@ -136,16 +111,13 @@ def fetch_all_markets(db: Session) -> int:
             logger.error(f"Error processing {ticker} ({code}): {e}")
             continue
 
-        time.sleep(0.25)  # Alpha Vantage rate limit (분당 5 요청)
-
     db.commit()
     logger.info(f"Market fetch complete: {updated}/{len(MARKET_CONFIG)} markets updated")
     return updated
 
 
 def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
-    """최근 30일 종가 이력 반환 (DB 우선, 없으면 Alpha Vantage)."""
-    # DB에서 최근 30일 데이터 조회
+    """최근 30일 종가 이력 반환 (DB 우선, 없으면 yfinance)."""
     cutoff = date.today() - timedelta(days=30)
     rows = db.execute(
         select(MarketHistory)
@@ -157,23 +129,30 @@ def fetch_history_30d(db: Session, country_code: str) -> list[dict]:
     if rows:
         return [{"date": r.date.strftime("%Y-%m-%d"), "close": r.close} for r in rows]
 
-    # DB에 없으면 Alpha Vantage 호출 (마지막 수단)
     cfg = next((m for m in MARKET_CONFIG if m["country_code"] == country_code), None)
     if not cfg:
         return []
 
     try:
-        ts = _alpha_vantage_timeseries(cfg["ticker"], days=30)
-        if not ts:
+        df = yf.download(
+            cfg["ticker"],
+            period="30d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+        if df.empty:
             return []
 
         result = []
-        for date_str in sorted(ts.keys()):
+        for ts, row in df.iterrows():
+            close_val = row["Close"]
+            if hasattr(close_val, "item"):
+                close_val = close_val.item()
             result.append({
-                "date": date_str,
-                "close": round(ts[date_str]["close"], 4),
+                "date": ts.strftime("%Y-%m-%d"),
+                "close": round(float(close_val), 4) if close_val == close_val else None,
             })
-
         return result
     except Exception as e:
         logger.error(f"fetch_history_30d failed for {country_code}: {e}")
