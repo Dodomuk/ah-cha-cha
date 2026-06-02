@@ -287,8 +287,10 @@ export default function MarketPanel({
         )}
 
         {!moversLoading && moversData?.supported && moversData.all?.length === 0 && (
-          <div style={{ color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', padding: '10px 0' }}>
-            {lang === 'ko' ? '장 마감 중 — 종목 데이터 불러오는 중...' : 'Market closed — loading stock data...'}
+          <div style={{ color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', padding: '10px 0', lineHeight: 1.7 }}>
+            {lang === 'ko'
+              ? '종목 데이터 준비 중입니다.\n서버 시작 후 약 1분 후 자동 갱신됩니다.'
+              : 'Stock data is being prepared.\nWill refresh automatically ~1 min after server start.'}
           </div>
         )}
 

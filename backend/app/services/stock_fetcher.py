@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from typing import Optional
@@ -320,10 +321,31 @@ def get_stock_detail(ticker: str) -> dict:
         return data
 
     except Exception as inner_e:
-        # 처리 중 에러 — 캐시가 있으면 그것이라도 반환
         stale = _detail_cache.get(ticker)
         if stale:
             logger.warning(f"Returning stale cache for {ticker} due to processing error: {inner_e}")
             return stale[1]
         logger.error(f"get_stock_detail processing failed for {ticker}: {inner_e}")
         return {"ticker": ticker, "error": str(inner_e)}
+
+
+# ── 전체 무버스 프리패치 (스케줄러 전용) ─────────────────────────────
+
+def prefetch_all_movers(db: Session) -> int:
+    """모든 지원 국가의 무버스 데이터를 미리 가져와 DB에 저장한다.
+    국가 간 5초 딜레이로 Rate Limit 방지."""
+    countries = list(STOCKS_BY_COUNTRY.keys())
+    success = 0
+    for code in countries:
+        try:
+            data = get_country_movers(code, db=db)
+            if data.get("all"):
+                success += 1
+                logger.info(f"Prefetch movers OK: {code} ({len(data['all'])} stocks)")
+            else:
+                logger.warning(f"Prefetch movers empty: {code}")
+        except Exception as e:
+            logger.error(f"Prefetch movers failed for {code}: {e}")
+        time.sleep(5)  # Yahoo Finance Rate Limit 방지
+    logger.info(f"Movers prefetch complete: {success}/{len(countries)} countries")
+    return success
