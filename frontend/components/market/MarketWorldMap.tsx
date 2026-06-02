@@ -37,15 +37,29 @@ function changePctToColor(pct: number | null): ColorResult {
   // 등락폭이 클수록 네온 강도 증가 (±5% 이상이면 최대)
   const glowIntensity = Math.min(abs / 5, 1)
 
-  // 5단계 색상 구간
+  // 4단계 색상 — 0 기준 초록/빨강 스펙트럼 (노랑 제거)
   if (pct <= -3) {
     return { fill: 'rgba(210,0,30,0.70)',   stroke: '#FF1744', glow: '#FF1744', glowIntensity }
-  } else if (pct <= -1) {
-    return { fill: 'rgba(255,90,0,0.65)',   stroke: '#FF6D00', glow: '#FF6D00', glowIntensity }
-  } else if (pct < 1) {
-    return { fill: 'rgba(220,185,0,0.55)',  stroke: '#FFD600', glow: '#FFD600', glowIntensity }
+  } else if (pct < 0) {
+    const t = Math.min(Math.abs(pct) / 3, 1)  // 0~1 (0%에 가까울수록 0)
+    const r = Math.round(160 + t * 50)
+    const g = Math.round(20 - t * 20)
+    return {
+      fill:   `rgba(${r},${g},${g},${0.40 + t * 0.25})`,
+      stroke: `rgb(${r},${g},${g})`,
+      glow:   `rgb(${r},${g},${g})`,
+      glowIntensity,
+    }
   } else if (pct < 3) {
-    return { fill: 'rgba(30,200,100,0.60)', stroke: '#69F0AE', glow: '#69F0AE', glowIntensity }
+    const t = Math.min(pct / 3, 1)
+    const g = Math.round(160 + t * 50)
+    const rb = Math.round(20 - t * 20)
+    return {
+      fill:   `rgba(${rb},${g},${rb},${0.40 + t * 0.25})`,
+      stroke: `rgb(${rb},${g},${rb})`,
+      glow:   `rgb(${rb},${g},${rb})`,
+      glowIntensity,
+    }
   } else {
     return { fill: 'rgba(0,210,90,0.70)',   stroke: '#00E676', glow: '#00E676', glowIntensity }
   }
