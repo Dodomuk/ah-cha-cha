@@ -31,6 +31,9 @@ class NewsArticle(Base):
     attacker_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)), nullable=True)
     victim_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)), nullable=True)
 
+    category: Mapped[str | None] = mapped_column(String(50), default="general")
+    animation_config: Mapped[dict | None] = mapped_column(Text)
+
     ai_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

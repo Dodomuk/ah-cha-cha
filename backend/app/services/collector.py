@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.news import NewsArticle, CountryThreatLevel
-from app.services.rss import fetch_security_news
+from app.services.rss import fetch_security_news, fetch_all_news
 from app.services.summarizer import summarize_batch
 from app.config import settings
 
@@ -46,10 +46,10 @@ def _append_usage_log(entry: dict) -> None:
 
 
 async def run_collection_cycle(db: Session) -> int:
-    """RSS 수집만 수행. TEST_MODE에서는 AI 요약을 건너뛴다."""
+    """RSS 수집 (모든 카테고리). TEST_MODE에서는 AI 요약을 건너뛴다."""
     logger.info("Starting RSS collection cycle")
 
-    raw_articles = await fetch_security_news(limit=200)
+    raw_articles = await fetch_all_news(limit=300)
     if not raw_articles:
         logger.warning("No articles fetched from RSS")
         return 0
@@ -79,6 +79,7 @@ async def run_collection_cycle(db: Session) -> int:
                 source_title=article.get("source_title"),
                 source_domain=article.get("source_domain"),
                 published_at=article.get("published_at"),
+                category=article.get("category", "general"),
                 threat_level=0,
                 country_codes=[],
                 ai_processed=False,

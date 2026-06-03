@@ -6,17 +6,58 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-SECURITY_RSS_FEEDS = [
-    # 글로벌
-    "https://feeds.feedburner.com/TheHackersNews",
-    "https://www.bleepingcomputer.com/feed/",
-    "https://krebsonsecurity.com/feed/",
-    "https://www.darkreading.com/rss.xml",
-    # 국내
-    "https://asec.ahnlab.com/ko/feed/",
-    "http://www.boannews.com/media/news_rss.xml",
-    "https://www.dailysecu.com/rss/allArticle.xml",
-]
+RSS_FEEDS = {
+    # 보안/사이버
+    "security": [
+        "https://feeds.feedburner.com/TheHackersNews",
+        "https://www.bleepingcomputer.com/feed/",
+        "https://krebsonsecurity.com/feed/",
+        "https://www.darkreading.com/rss.xml",
+        "https://asec.ahnlab.com/ko/feed/",
+        "http://www.boannews.com/media/news_rss.xml",
+        "https://www.dailysecu.com/rss/allArticle.xml",
+    ],
+    # 정치/외교
+    "politics": [
+        "https://www.bbc.com/news/rss.xml",
+        "https://feeds.reuters.com/politics",
+        "https://www.politico.eu/feed/",
+        "https://apnews.com/hub/politics/feed",
+        "http://feeds.reuters.com/reuters/worldNews",
+        "https://www.washingtonpost.com/politics/?itid=lk_inline_manual_18",
+    ],
+    # 전쟁/분쟁
+    "conflict": [
+        "https://feeds.reuters.com/reuters/worldNews",
+        "https://www.bbc.com/news/world/rss.xml",
+        "https://feeds.bloomberg.com/markets/news.rss",
+        "https://feeds.washingtonpost.com/rss/world",
+    ],
+    # IT/기술
+    "tech": [
+        "https://news.ycombinator.com/rss",
+        "https://www.theverge.com/rss/index.xml",
+        "https://feeds.arstechnica.com/arstechnica/index",
+        "https://techcrunch.com/feed/",
+        "https://feeds.slashdot.org/Slashdot/slashdot",
+    ],
+    # 스포츠
+    "sports": [
+        "http://feeds.reuters.com/reuters/sportsNews",
+        "https://www.bbc.com/sport/rss.xml",
+        "https://feeds.espn.com/espn/headlines",
+    ],
+    # 글로벌 뉴스
+    "general": [
+        "https://www.bbc.com/news/rss.xml",
+        "http://feeds.reuters.com/reuters/worldNews",
+        "https://apnews.com/apf-services/APIFeeds/rss_feed.xml",
+        "http://feeds.cnn.com/rss/edition.rss",
+    ],
+}
+
+# 하위 호환성
+SECURITY_RSS_FEEDS = RSS_FEEDS["security"]
 
 # 제목에 아래 키워드 중 하나라도 포함되면 수집 대상
 SECURITY_KEYWORDS = {
@@ -100,12 +141,62 @@ def _is_security_related(title: str) -> bool:
 
 
 async def fetch_security_news(limit: int = 200) -> list[dict]:
-    """모든 피드를 전량 수집한 뒤 보안 키워드 기준으로 필터링한다.
-    limit은 안전망 상한선 (키워드 필터 후에도 비정상적으로 많을 때 대비)."""
+    """모든 보안 피드를 전량 수집한 뒤 보안 키워드 기준으로 필터링한다."""
+    results = await _fetch_news_by_category("security", limit, filter_func=_is_security_related)
+    return results
+
+
+async def fetch_all_news(limit: int = 300) -> list[dict]:
+    """모든 카테고리의 뉴스를 수집한다 (필터링 없음)."""
     results = []
 
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        for feed_url in SECURITY_RSS_FEEDS:
+        for category, feed_urls in RSS_FEEDS.items():
+            for feed_url in feed_urls:
+                try:
+                    resp = await client.get(feed_url)
+                    resp.raise_for_status()
+                    feed = feedparser.parse(resp.text)
+
+                    for entry in feed.entries:
+                        url = entry.get("link", "")
+                        title = entry.get("title", "")
+                        if not url or not title:
+                            continue
+                        results.append({
+                            "url": url,
+                            "source_title": title,
+                            "source_domain": _extract_domain(url),
+                            "published_at": _parse_date(entry),
+                            "category": category,
+                        })
+
+                    logger.info(
+                        f"RSS {category} {feed_url}: {len(feed.entries)} entries"
+                    )
+                except Exception as e:
+                    logger.warning(f"RSS feed failed ({feed_url}): {e}")
+
+    seen: set[str] = set()
+    unique = []
+    for a in results:
+        if a["url"] not in seen:
+            seen.add(a["url"])
+            unique.append(a)
+
+    logger.info(f"Total articles from all sources: {len(unique)}")
+    return unique[:limit]
+
+
+async def _fetch_news_by_category(
+    category: str, limit: int = 200, filter_func=None
+) -> list[dict]:
+    """특정 카테고리의 뉴스를 수집한다."""
+    results = []
+    feed_urls = RSS_FEEDS.get(category, [])
+
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        for feed_url in feed_urls:
             try:
                 resp = await client.get(feed_url)
                 resp.raise_for_status()
@@ -117,19 +208,20 @@ async def fetch_security_news(limit: int = 200) -> list[dict]:
                     title = entry.get("title", "")
                     if not url:
                         continue
-                    if not _is_security_related(title):
+                    if filter_func and not filter_func(title):
                         continue
                     results.append({
                         "url": url,
                         "source_title": title,
                         "source_domain": _extract_domain(url),
                         "published_at": _parse_date(entry),
+                        "category": category,
                     })
                     passed += 1
 
                 logger.info(
-                    f"RSS {feed_url}: {len(feed.entries)} entries → "
-                    f"{passed} passed keyword filter"
+                    f"RSS {category} {feed_url}: {len(feed.entries)} entries → "
+                    f"{passed} selected"
                 )
             except Exception as e:
                 logger.warning(f"RSS feed failed ({feed_url}): {e}")
@@ -141,7 +233,7 @@ async def fetch_security_news(limit: int = 200) -> list[dict]:
             seen.add(a["url"])
             unique.append(a)
 
-    logger.info(f"Total security articles after filter: {len(unique)}")
+    logger.info(f"Total {category} articles after filter: {len(unique)}")
     return unique[:limit]
 
 

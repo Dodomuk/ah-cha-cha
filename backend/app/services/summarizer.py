@@ -7,11 +7,11 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """당신은 사이버 보안 뉴스 분석가입니다.
+SYSTEM_PROMPT = """당신은 전 세계 뉴스 분석가입니다.
 주어진 뉴스 기사를 분석하여 JSON 형식으로 정보를 추출합니다.
 모든 텍스트 출력은 반드시 한국어로 작성하세요."""
 
-USER_PROMPT_TEMPLATE = """다음 보안 뉴스 기사를 분석하고 JSON으로 응답하세요.
+USER_PROMPT_TEMPLATE = """다음 뉴스 기사를 분석하고 JSON으로 응답하세요.
 
 제목: {title}
 
@@ -19,24 +19,18 @@ USER_PROMPT_TEMPLATE = """다음 보안 뉴스 기사를 분석하고 JSON으로
 {{
   "summary_title": "한 줄 요약 제목 (50자 이내, 한국어)",
   "summary_what": "무슨 일이 있었는지 설명 (3~5문장, 한국어)",
-  "summary_impact": "어떤 피해나 영향이 발생했는지 (2~3문장, 한국어)",
-  "threat_level": 위협_레벨_숫자,
+  "summary_impact": "어떤 영향이나 결과가 있을 것인지 (2~3문장, 한국어)",
+  "threat_level": 1,
   "country_codes": ["ISO_코드1", "ISO_코드2"],
-  "attacker_codes": ["공격자_국가_ISO_코드"],
-  "victim_codes": ["피해자_국가_ISO_코드"]
+  "attacker_codes": [],
+  "victim_codes": []
 }}
 
-위협 레벨 기준:
-- 0: 보안과 무관하거나 경미한 일반 정보
-- 1: 보안 패치 권고, 취약점 발견, 경미한 피싱
-- 2: 소규모 해킹, 데이터 유출, 취약점 악용
-- 3: 금융기관/기업 침해, 대규모 데이터 유출
-- 4: 국가기반시설 공격, 사이버전, 대규모 랜섬웨어
-
+threat_level: 1~5 (1=경미, 5=심각)
 country_codes: 사건과 직접 관련된 모든 국가 ISO 3166-1 alpha-2 코드.
-attacker_codes: 공격을 수행한 것으로 귀속된 국가만 (확인된 경우). 불명이면 [].
-victim_codes: 공격의 피해를 입은 국가들. 불명이면 [].
-국가를 특정할 수 없으면 각 배열에 빈 배열 []을 반환하세요."""
+attacker_codes: 공격/주도를 한 국가 (해당 없으면 []).
+victim_codes: 피해를 입은 국가들 (해당 없으면 []).
+국가를 특정할 수 없으면 빈 배열 []."""
 
 
 _REPLACEMENT_CHAR = "�"
@@ -52,7 +46,37 @@ def _has_replacement_char(data: dict) -> bool:
     return False
 
 
-async def summarize_article(title: str, max_retries: int = 3) -> tuple[dict | None, dict]:
+def _generate_animation_config(data: dict, category: str) -> dict:
+    """Claude 응답에서 animation_config 생성."""
+    countries = data.get("country_codes", [])
+    attacker = data.get("attacker_codes", [])
+    victim = data.get("victim_codes", [])
+    threat = data.get("threat_level", 1)
+
+    arrows = []
+    if attacker and victim:
+        for a in attacker:
+            for v in victim:
+                arrows.append({"from": a, "to": v, "type": category})
+
+    icon_map = {
+        "security": "lock",
+        "conflict": "bomb",
+        "politics": "flag",
+        "tech": "cpu",
+        "sports": "trophy",
+    }
+
+    return {
+        "affected_countries": countries,
+        "arrows": arrows,
+        "threat_level": threat,
+        "icon": icon_map.get(category, "alert"),
+        "category": category,
+    }
+
+
+async def summarize_article(title: str, category: str = "general", max_retries: int = 3) -> tuple[dict | None, dict]:
     """Returns (result, token_usage). token_usage = {"input": 0, "output": 0} on failure.
 
     Claude Haiku 모델이 한글 생성 시 간헐적으로 U+FFFD(replacement character)를 반환하는
@@ -99,6 +123,7 @@ async def summarize_article(title: str, max_retries: int = 3) -> tuple[dict | No
                     logger.error(f"All {max_retries} attempts returned garbled text, giving up: {title[:60]}")
                     return None, total_usage
 
+            result["animation_config"] = json.dumps(_generate_animation_config(result, category))
             return result, total_usage
 
         except json.JSONDecodeError:
@@ -120,8 +145,9 @@ async def summarize_batch(articles: list[dict], concurrency: int = 2) -> tuple[l
 
     async def _process(article: dict) -> dict:
         async with semaphore:
-            await asyncio.sleep(0.3)  # 요청 간 최소 간격으로 rate limit 완화
-            result, usage = await summarize_article(article.get("source_title", ""))
+            await asyncio.sleep(0.3)
+            category = article.get("category", "general")
+            result, usage = await summarize_article(article.get("source_title", ""), category=category)
             total_tokens["input"] += usage["input"]
             total_tokens["output"] += usage["output"]
             if result:
@@ -130,6 +156,7 @@ async def summarize_batch(articles: list[dict], concurrency: int = 2) -> tuple[l
             else:
                 article["threat_level"] = 0
                 article["country_codes"] = []
+                article["animation_config"] = json.dumps({"affected_countries": [], "arrows": []})
                 article["ai_processed"] = False
             return article
 
