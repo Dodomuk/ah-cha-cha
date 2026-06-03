@@ -494,19 +494,14 @@ def translate_to_english(text: str) -> str:
 def get_events(
     limit: int = 50,
     category: Optional[str] = None,
-    language: Optional[str] = "en",
+    language: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """최근 이벤트 목록 (뉴스 기반). language=en으로 영어 기사만 필터링."""
+    """최근 이벤트 목록 (뉴스 기반). 자동 영어 번역 포함."""
     query = select(NewsArticle).where(
         NewsArticle.ai_processed.is_(True),
         NewsArticle.threat_level > 0,
     )
-
-    # 언어 필터링
-    if language == "en":
-        # summary_title_en이 있으면 영어로 분류
-        query = query.where(NewsArticle.summary_title_en.isnot(None))
 
     if category:
         query = query.where(NewsArticle.category == category)
