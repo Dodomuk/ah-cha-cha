@@ -42,6 +42,11 @@ app.include_router(router, prefix="/api")
 app.include_router(market_router, prefix="/api")
 
 
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return {"status": "ok", "service": "Ah-Cha-Cha Breaking News API"}
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
