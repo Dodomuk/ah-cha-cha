@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import * as d3 from 'd3'
 
@@ -91,6 +91,7 @@ export default function HomePage() {
   const [resumeTimer, setResumeTimer] = useState<NodeJS.Timeout | null>(null)
   const [showNewEventBadge, setShowNewEventBadge] = useState(false)
   const [newEventTimer, setNewEventTimer] = useState<NodeJS.Timeout | null>(null)
+  const slideshowIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     document.title = 'Ah-Cha-Cha — Breaking News'
@@ -175,13 +176,26 @@ export default function HomePage() {
   }, [newEventTimer, resumeTimer])
 
   useEffect(() => {
-    if (events.length === 0 || !isPlaying) return
+    if (events.length === 0 || !isPlaying) {
+      if (slideshowIntervalRef.current) {
+        clearInterval(slideshowIntervalRef.current)
+        slideshowIntervalRef.current = null
+      }
+      return
+    }
 
     const timer = setInterval(() => {
       setCurrentEventIndex((prev) => (prev + 1) % events.length)
     }, SLIDESHOW_INTERVAL)
 
-    return () => clearInterval(timer)
+    slideshowIntervalRef.current = timer
+
+    return () => {
+      if (slideshowIntervalRef.current) {
+        clearInterval(slideshowIntervalRef.current)
+        slideshowIntervalRef.current = null
+      }
+    }
   }, [events.length, isPlaying])
 
   const currentEvent = events[currentEventIndex]
@@ -618,6 +632,10 @@ export default function HomePage() {
                           if (idx !== currentEventIndex) {
                             setCurrentEventIndex(idx)
                             setIsPlaying(false)
+                            if (slideshowIntervalRef.current) {
+                              clearInterval(slideshowIntervalRef.current)
+                              slideshowIntervalRef.current = null
+                            }
                             if (resumeTimer) clearTimeout(resumeTimer)
                             const timer = setTimeout(() => {
                               setIsPlaying(true)
