@@ -23,6 +23,55 @@ interface Event {
 
 const SLIDESHOW_INTERVAL = 12000
 
+function getRelativeTime(dateString: string): string {
+  if (!dateString) return ''
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 30) return `${diffDays}d ago`
+
+  return date.toLocaleDateString()
+}
+
+function chunkWords(words: string[], chunkSize: number = 2): string[] {
+  const result = []
+  for (let i = 0; i < words.length; i += chunkSize) {
+    result.push(words.slice(i, i + chunkSize).join(' '))
+  }
+  return result
+}
+
+function getDateKey(dateString: string): string {
+  if (!dateString) return 'Unknown'
+  const date = new Date(dateString)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const twoDaysAgo = new Date(today)
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
+  const threeDaysAgo = new Date(today)
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+
+  const dateOnly = date.toDateString()
+  const todayOnly = today.toDateString()
+  const yesterdayOnly = yesterday.toDateString()
+  const twoDaysAgoOnly = twoDaysAgo.toDateString()
+
+  if (dateOnly === todayOnly) return 'Today'
+  if (dateOnly === yesterdayOnly) return 'Yesterday'
+  if (dateOnly === twoDaysAgoOnly) return '2 days ago'
+  if (date > threeDaysAgo) return date.toLocaleDateString()
+  return ''
+}
+
+
 const countryCoordinates: Record<string, [number, number]> = {
   US: [-95, 37], CA: [-106, 56], MX: [-102, 23], BR: [-51, -14], AR: [-63, -38],
   GB: [-3, 54], FR: [2, 46], DE: [10, 51], IT: [12, 42], ES: [-3, 40],
@@ -40,6 +89,8 @@ export default function HomePage() {
   const [displayedSummaryWords, setDisplayedSummaryWords] = useState<string[]>([])
   const [isPlaying, setIsPlaying] = useState(true)
   const [resumeTimer, setResumeTimer] = useState<NodeJS.Timeout | null>(null)
+  const [showNewEventBadge, setShowNewEventBadge] = useState(false)
+  const [newEventTimer, setNewEventTimer] = useState<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     document.title = 'Ah-Cha-Cha — Breaking News'
@@ -85,6 +136,12 @@ export default function HomePage() {
             if (message.type === 'new_event') {
               setEvents((prev) => [message, ...prev].slice(0, 50))
               setCurrentEventIndex(0)
+              setShowNewEventBadge(true)
+              if (newEventTimer) clearTimeout(newEventTimer)
+              const timer = setTimeout(() => {
+                setShowNewEventBadge(false)
+              }, 3000)
+              setNewEventTimer(timer)
             }
           } catch (e) {
             console.error('WebSocket message parse error:', e)
@@ -111,9 +168,11 @@ export default function HomePage() {
     return () => {
       clearInterval(interval)
       if (reconnectTimeout) clearTimeout(reconnectTimeout)
+      if (newEventTimer) clearTimeout(newEventTimer)
+      if (resumeTimer) clearTimeout(resumeTimer)
       if (ws) ws.close()
     }
-  }, [])
+  }, [newEventTimer, resumeTimer])
 
   useEffect(() => {
     if (events.length === 0 || !isPlaying) return
@@ -127,16 +186,19 @@ export default function HomePage() {
 
   const currentEvent = events[currentEventIndex]
 
-  // 단어별 애니메이션 (Word-by-word reveal)
+  // 단어별 애니메이션 (Word-by-word reveal with chunking)
   useEffect(() => {
     if (!currentEvent) return
 
-    const titleWords = (currentEvent.title || '')
+    const rawTitleWords = (currentEvent.title || '')
       .split(' ')
       .filter(w => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
-    const summaryWords = (currentEvent.summary || '')
+    const rawSummaryWords = (currentEvent.summary || '')
       .split(' ')
       .filter(w => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
+
+    const titleWords = chunkWords(rawTitleWords, 2)
+    const summaryWords = chunkWords(rawSummaryWords, 2)
     let titleIndex = 0
     let summaryIndex = 0
 
@@ -442,7 +504,12 @@ export default function HomePage() {
                 borderTop: '1px solid rgba(255,255,255,0.1)',
                 marginTop: 12,
               }}>
-                Auto-rotating ({currentEventIndex + 1}/{events.length})
+                <div>Auto-rotating ({currentEventIndex + 1}/{events.length})</div>
+                {currentEvent.collected_at && (
+                  <div style={{ marginTop: 4, color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
+                    Collected: {getRelativeTime(currentEvent.collected_at)}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -457,23 +524,52 @@ export default function HomePage() {
               backdropFilter: 'blur(10px)',
               border: '1px solid rgba(0, 230, 118, 0.15)',
               borderRadius: 12,
-              overflow: 'auto',
+              overflow: 'hidden',
               zIndex: 40,
               boxShadow: '0 8px 32px rgba(0, 230, 118, 0.02)',
+              display: 'flex',
+              flexDirection: 'column',
             }}>
               <div style={{
                 padding: '12px 16px',
                 borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
-                background: 'rgba(0, 230, 118, 0.03)',
+                background: 'rgba(10, 25, 47, 0.95)',
+                backdropFilter: 'blur(10px)',
                 position: 'sticky',
                 top: 0,
-                zIndex: 41,
+                zIndex: 50,
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                borderRadius: '12px 12px 0 0',
               }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#00e676' }}>
-                  Latest News
+                <div style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#00e676',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
+                  {showNewEventBadge ? (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}>
+                      <div style={{
+                        width: 12,
+                        height: 12,
+                        border: '2px solid #00e676',
+                        borderRadius: '50%',
+                        borderTopColor: 'transparent',
+                        animation: 'spin 0.8s linear infinite',
+                      }} />
+                      <span>New Event</span>
+                    </div>
+                  ) : (
+                    'Latest News'
+                  )}
                 </div>
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
@@ -494,43 +590,63 @@ export default function HomePage() {
                 </button>
               </div>
 
-              <div style={{ padding: 8 }}>
-                {events.map((event, idx) => (
-                  <div
-                    key={event.id}
-                    onClick={() => {
-                      if (idx !== currentEventIndex) {
-                        setCurrentEventIndex(idx)
-                        setIsPlaying(false)
-                        if (resumeTimer) clearTimeout(resumeTimer)
-                        const timer = setTimeout(() => {
-                          setIsPlaying(true)
-                        }, 20000)
-                        setResumeTimer(timer)
-                      }
-                    }}
-                    style={{
-                      background: idx === currentEventIndex ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
-                      border: `1px solid ${idx === currentEventIndex ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      padding: 8,
-                      marginBottom: 6,
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={(e) => {
-                      const el = e.currentTarget as HTMLElement
-                      if (idx !== currentEventIndex) {
-                        el.style.background = 'rgba(255,255,255,0.08)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      const el = e.currentTarget as HTMLElement
-                      if (idx !== currentEventIndex) {
-                        el.style.background = 'rgba(255,255,255,0.05)'
-                      }
-                    }}
-                  >
+              <div style={{ padding: 8, overflow: 'auto', flex: 1 }}>
+                {events.map((event, idx) => {
+                  const prevDate = idx > 0 ? getDateKey(events[idx - 1].collected_at) : ''
+                  const curDate = getDateKey(event.collected_at)
+                  const showDateHeader = curDate && curDate !== prevDate
+
+                  return (
+                    <div key={`item-${event.id}`}>
+                      {showDateHeader && (
+                        <div style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: 'rgba(0,230,118,0.5)',
+                          paddingLeft: 8,
+                          marginTop: idx === 0 ? 0 : 8,
+                          marginBottom: 4,
+                          textTransform: 'uppercase',
+                          letterSpacing: 1,
+                        }}>
+                          {curDate}
+                        </div>
+                      )}
+                      <div
+                        key={event.id}
+                        onClick={() => {
+                          if (idx !== currentEventIndex) {
+                            setCurrentEventIndex(idx)
+                            setIsPlaying(false)
+                            if (resumeTimer) clearTimeout(resumeTimer)
+                            const timer = setTimeout(() => {
+                              setIsPlaying(true)
+                            }, 20000)
+                            setResumeTimer(timer)
+                          }
+                        }}
+                        style={{
+                          background: idx === currentEventIndex ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${idx === currentEventIndex ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                          padding: 8,
+                          marginBottom: 6,
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseEnter={(e) => {
+                          const el = e.currentTarget as HTMLElement
+                          if (idx !== currentEventIndex) {
+                            el.style.background = 'rgba(255,255,255,0.08)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          const el = e.currentTarget as HTMLElement
+                          if (idx !== currentEventIndex) {
+                            el.style.background = 'rgba(255,255,255,0.05)'
+                          }
+                        }}
+                      >
                     <div style={{ display: 'flex', gap: 6, alignItems: 'start' }}>
                       <span style={{ fontSize: 12, flexShrink: 0 }}>
                         {categoryEmoji[event.category as keyof typeof categoryEmoji] || '📰'}
@@ -567,7 +683,9 @@ export default function HomePage() {
                       />
                     </div>
                   </div>
-                ))}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </>

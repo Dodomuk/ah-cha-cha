@@ -468,8 +468,12 @@ def is_korean(text: str) -> bool:
 
 
 def translate_to_english(text: str) -> str:
-    """한국어 텍스트를 영어로 번역 (Claude API 사용)."""
-    if not text or not is_korean(text):
+    """한국어 텍스트를 영어로 번역 (Claude API 사용). 한국어가 없으면 원본 반환."""
+    if not text:
+        return text
+
+    # 한국어가 없으면 그대로 반환
+    if not is_korean(text):
         return text
 
     try:
@@ -484,7 +488,9 @@ def translate_to_english(text: str) -> str:
                 }
             ]
         )
-        return message.content[0].text.strip()
+        translated = message.content[0].text.strip()
+        print(f"Translated: {text[:50]}... -> {translated[:50]}...")
+        return translated
     except Exception as e:
         print(f"Translation error: {e}")
         return text
@@ -509,22 +515,31 @@ def get_events(
     query = query.order_by(NewsArticle.collected_at.desc()).limit(min(limit, 100))
     articles = db.execute(query).scalars().all()
 
-    return {
-        "events": [
-            {
-                "id": str(a.id),
-                "title": a.summary_title_en or translate_to_english(a.summary_title) if a.summary_title else "",
-                "summary": a.summary_what_en or translate_to_english(a.summary_what) if a.summary_what else "",
-                "category": a.category or "general",
-                "keywords": extract_keywords((a.summary_what_en or translate_to_english(a.summary_what) if a.summary_what else "") + " " + (a.summary_title_en or translate_to_english(a.summary_title) if a.summary_title else "")),
-                "threat_level": a.threat_level,
-                "countries": a.country_codes or [],
-                "animation_config": a.animation_config,
-                "collected_at": a.collected_at.isoformat() if a.collected_at else None,
-            }
-            for a in articles
-        ]
-    }
+    events = []
+    for a in articles:
+        # 제목과 요약을 영어로 변환 (저장된 영어 버전이 한국어이면 다시 번역)
+        title = a.summary_title if a.summary_title else ""
+        summary = a.summary_what if a.summary_what else ""
+
+        # 항상 번역 시도 (한국어가 없으면 원본 반환)
+        title_en = translate_to_english(title)
+        summary_en = translate_to_english(summary)
+
+        keywords_text = summary_en + " " + title_en
+
+        events.append({
+            "id": str(a.id),
+            "title": title_en,
+            "summary": summary_en,
+            "category": a.category or "general",
+            "keywords": extract_keywords(keywords_text),
+            "threat_level": a.threat_level,
+            "countries": a.country_codes or [],
+            "animation_config": a.animation_config,
+            "collected_at": a.collected_at.isoformat() if a.collected_at else None,
+        })
+
+    return {"events": events}
 
 
 @router.websocket("/ws")
