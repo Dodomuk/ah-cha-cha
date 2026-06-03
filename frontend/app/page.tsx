@@ -132,20 +132,11 @@ export default function HomePage() {
                   key={event.id}
                   onClick={() => setSelectedEvent(event)}
                   style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: `1px solid rgba(255,255,255,0.06)`,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: `1px solid rgba(255,255,255,0.08)`,
                     padding: '12px',
                     borderRadius: 6,
                     cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)'
-                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)'
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'
-                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.06)'
                   }}
                 >
                   <div style={{ display: 'flex', gap: 8, alignItems: 'start', marginBottom: 6 }}>
