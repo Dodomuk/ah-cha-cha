@@ -29,10 +29,12 @@ export default function HomePage() {
   }, [lang])
 
   useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://api-ah-cha-cha.onrender.com'
+
     const fetchEvents = async () => {
       try {
         const limit = tab === 'latest' ? 50 : 200
-        const res = await fetch(`/api/events?limit=${limit}`)
+        const res = await fetch(`${apiBase}/api/events?limit=${limit}`)
         const data = await res.json()
         setEvents(data.events || [])
       } catch (e) {
@@ -50,8 +52,10 @@ export default function HomePage() {
 
     const connectWebSocket = () => {
       try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://api-ah-cha-cha.onrender.com'
+        const wsProtocol = apiBase.startsWith('https') ? 'wss:' : 'ws:'
+        const wsHost = apiBase.replace(/^https?:\/\//, '')
+        ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`)
 
         ws.onopen = () => {
           console.log('WebSocket connected')
