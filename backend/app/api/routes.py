@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
 from app.models.database import get_db
@@ -13,6 +13,32 @@ from app.models.schemas import (
 from app.config import settings
 
 router = APIRouter()
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect(conn)
+
+
+manager = ConnectionManager()
 
 KST = timezone(timedelta(hours=9))
 
@@ -419,13 +445,13 @@ def get_events(
         NewsArticle.ai_processed.is_(True),
         NewsArticle.threat_level > 0,
     )
-    
+
     if category:
         query = query.where(NewsArticle.category == category)
-    
+
     query = query.order_by(NewsArticle.collected_at.desc()).limit(min(limit, 100))
     articles = db.execute(query).scalars().all()
-    
+
     return {
         "events": [
             {
@@ -441,3 +467,14 @@ def get_events(
             for a in articles
         ]
     }
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """실시간 뉴스 이벤트 스트리밍."""
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)

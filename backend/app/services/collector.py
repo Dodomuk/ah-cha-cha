@@ -119,6 +119,7 @@ async def run_summarization_cycle(db: Session) -> dict:
     processed, tokens = await summarize_batch(articles_data)
 
     updated = 0
+    updated_articles = []
     for data in processed:
         if not data.get("ai_processed"):
             continue
@@ -138,8 +139,30 @@ async def run_summarization_cycle(db: Session) -> dict:
             obj.victim_codes = data.get("victim_codes") or []
             obj.ai_processed = True
             updated += 1
+            updated_articles.append(obj)
 
     db.commit()
+
+    # WebSocket broadcast
+    if updated_articles:
+        try:
+            from app.api.routes import manager
+            for article in updated_articles:
+                if article.threat_level > 0:
+                    event = {
+                        "type": "new_event",
+                        "id": str(article.id),
+                        "title": article.summary_title,
+                        "summary": article.summary_what,
+                        "category": article.category or "general",
+                        "threat_level": article.threat_level,
+                        "countries": article.country_codes or [],
+                        "animation_config": article.animation_config,
+                        "collected_at": article.collected_at.isoformat() if article.collected_at else None,
+                    }
+                    await manager.broadcast(event)
+        except Exception as e:
+            logger.warning(f"WebSocket broadcast failed: {e}")
 
     haiku_input_price = 0.80 / 1_000_000
     haiku_output_price = 4.00 / 1_000_000
