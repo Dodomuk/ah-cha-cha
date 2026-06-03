@@ -1,187 +1,253 @@
 'use client'
 
-import dynamic from 'next/dynamic'
-import { useState, useCallback, useEffect } from 'react'
-import { useMarkets } from '@/hooks/useMarketData'
+import { useState, useEffect } from 'react'
 import { useLangStore } from '@/lib/langStore'
-import MarketPanel from '@/components/market/MarketPanel'
-import StockDetailPanel from '@/components/market/StockDetailPanel'
-import GlobalSpreadOverlay from '@/components/market/GlobalSpreadOverlay'
 import Link from 'next/link'
 
-const MarketWorldMap = dynamic(() => import('@/components/market/MarketWorldMap'), { ssr: false })
-
-function fmtTime(isoStr: string | undefined, locale: string): string {
-  if (!isoStr) return ''
-  return new Date(isoStr).toLocaleString(locale, {
-    timeZone: 'Asia/Seoul',
-    month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  })
+interface Event {
+  id: string
+  title: string
+  summary: string
+  category: string
+  threat_level: number
+  countries: string[]
+  collected_at: string
 }
 
 export default function HomePage() {
-  const { data, isFetching, isLoading } = useMarkets()
   const { lang, setLang } = useLangStore()
+  const [events, setEvents] = useState<Event[]>([])
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    document.title = lang === 'ko'
-      ? '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시'
-      : 'Ah-Cha-Cha — World Markets at a Glance'
+    document.title = lang === 'ko' ? 'Ah-Cha-Cha — 실시간 속보' : 'Ah-Cha-Cha — Breaking News'
   }, [lang])
 
-  // ── 국가 패널 ──────────────────────────────────────────────────
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [selectedCode, setSelectedCode] = useState<string | null>(null)
-  const [selectedName, setSelectedName] = useState<string | null>(null)
-  const [clickPos, setClickPos] = useState<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const res = await fetch('/api/events?limit=50')
+        const data = await res.json()
+        setEvents(data.events || [])
+      } catch (e) {
+        console.error('Failed to fetch events:', e)
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  // ── 종목 상세 패널 ─────────────────────────────────────────────
-  const [stockTicker, setStockTicker] = useState<string | null>(null)
-  const [stockPanelOpen, setStockPanelOpen] = useState(false)
-
-  // ── 글로벌 스프레드 오버레이 ───────────────────────────────────
-  const [spreadTicker, setSpreadTicker] = useState<string | null>(null)
-  const [spreadOrigin, setSpreadOrigin] = useState<string | null>(null)
-  const [spreadOpen, setSpreadOpen] = useState(false)
-
-  const handleCountryClick = useCallback((code: string, name: string, x: number, y: number) => {
-    setSelectedCode(code)
-    setSelectedName(name)
-    setClickPos({ x, y })
-    setPanelOpen(true)
-    setStockPanelOpen(false)
-    setSpreadOpen(false)
+    fetchEvents()
+    const interval = setInterval(fetchEvents, 30000)
+    return () => clearInterval(interval)
   }, [])
 
-  const handleCloseCountry = useCallback(() => setPanelOpen(false), [])
+  const categoryEmoji: Record<string, string> = {
+    security: '🔒',
+    conflict: '⚔️',
+    politics: '🏛️',
+    tech: '💻',
+    sports: '⚽',
+    general: '📰',
+  }
 
-  const handleSelectStock = useCallback((ticker: string) => {
-    setStockTicker(ticker)
-    setStockPanelOpen(true)
-    setSpreadOpen(false)
-  }, [])
-
-  const handleCloseStock = useCallback(() => setStockPanelOpen(false), [])
-
-  const handleShowSpread = useCallback((ticker: string) => {
-    setSpreadTicker(ticker)
-    setSpreadOrigin(selectedCode)
-    setSpreadOpen(true)
-  }, [selectedCode])
-
-  const handleCloseSpread = useCallback(() => setSpreadOpen(false), [])
-
-  const markets = data?.markets ?? {}
-  const updatedAt = fmtTime(data?.updated_at, lang === 'ko' ? 'ko-KR' : 'en-US')
+  const threatColor = (level: number) => {
+    if (level >= 4) return '#ff5252'
+    if (level >= 3) return '#ff9100'
+    if (level >= 2) return '#ffc107'
+    return '#4caf50'
+  }
 
   return (
-    <div className="flex flex-col h-full w-full" style={{ background: '#000000' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#000' }}>
       {/* 헤더 */}
       <header style={{
-        height: 52, paddingInline: '20px',
         background: 'rgba(0,0,0,0.92)',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0, zIndex: 20,
+        padding: '16px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div>
-            <span style={{
-              fontSize: 17, fontWeight: 700, fontFamily: 'monospace',
-              color: '#00e676', textShadow: '0 0 12px #00e67680',
-              letterSpacing: '-0.5px',
-            }}>
-              Ah-Cha-Cha
-            </span>
-            <div style={{ display: 'flex', gap: 4, marginTop: 1 }}>
-              {(['en', 'ko'] as const).map(l => (
-                <button key={l} onClick={() => setLang(l)} style={{
-                  fontSize: 13, background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '1px 2px', borderRadius: 3,
-                  opacity: lang === l ? 1 : 0.35, transition: 'opacity 0.15s',
-                  filter: lang === l ? 'drop-shadow(0 0 4px rgba(0,230,118,0.5))' : 'none',
-                }}>
-                  {l === 'en' ? '🇺🇸' : '🇰🇷'}
-                </button>
-              ))}
-            </div>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#00e676', fontFamily: 'monospace' }}>
+            Ah-Cha-Cha
           </div>
-          <span style={{ fontSize: 10, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.2)' }}>
-            {lang === 'ko' ? '전 세계 증시' : 'WORLD MARKETS'}
-          </span>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+            {lang === 'ko' ? '실시간 속보' : 'BREAKING NEWS'}
+          </div>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {updatedAt && (
-            <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.25)' }}>
-              {lang === 'ko' ? '갱신:' : 'Updated:'} {updatedAt}
-            </span>
-          )}
-          {isFetching && (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="#00e676" strokeWidth="2.5" strokeLinecap="round"
-              style={{ animation: 'spin 0.8s linear infinite' }}>
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-            </svg>
-          )}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {(['en', 'ko'] as const).map(l => (
+              <button
+                key={l}
+                onClick={() => setLang(l)}
+                style={{
+                  background: lang === l ? 'rgba(0,230,118,0.2)' : 'transparent',
+                  border: `1px solid ${lang === l ? '#00e676' : 'rgba(255,255,255,0.1)'}`,
+                  color: lang === l ? '#00e676' : 'rgba(255,255,255,0.5)',
+                  padding: '4px 8px',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                {l === 'en' ? '🇺🇸' : '🇰🇷'}
+              </button>
+            ))}
+          </div>
           <Link href="/legacy" style={{
-            fontSize: 11, fontFamily: 'monospace',
-            color: 'rgba(255,255,255,0.2)', textDecoration: 'none',
+            fontSize: 11,
+            color: 'rgba(255,255,255,0.3)',
+            textDecoration: 'none',
           }}>
             Security →
           </Link>
         </div>
       </header>
 
-      {/* 지도 영역 */}
-      <div className="flex-1 relative overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center w-full h-full">
-            <span style={{ color: '#00e676', fontFamily: 'monospace', fontSize: 13, textShadow: '0 0 10px #00e67680' }}>
-              {lang === 'ko' ? '시장 데이터 로딩 중...' : 'Loading market data...'}
-            </span>
+      {/* 메인 콘텐츠 */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* 이벤트 목록 */}
+        <div style={{
+          flex: '1',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          overflow: 'auto',
+          padding: '20px',
+        }}>
+          {loading ? (
+            <div style={{ color: '#00e676', fontFamily: 'monospace' }}>
+              {lang === 'ko' ? '로딩 중...' : 'Loading...'}
+            </div>
+          ) : events.length === 0 ? (
+            <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+              {lang === 'ko' ? '이벤트가 없습니다' : 'No events'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {events.map(event => (
+                <div
+                  key={event.id}
+                  onClick={() => setSelectedEvent(event)}
+                  style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid rgba(255,255,255,0.06)`,
+                    padding: '12px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)'
+                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)'
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'
+                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.06)'
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'start', marginBottom: 6 }}>
+                    <span style={{ fontSize: 18 }}>
+                      {categoryEmoji[event.category as keyof typeof categoryEmoji] || '📰'}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                        {event.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+                        {event.countries.join(', ')} {event.category}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        background: threatColor(event.threat_level),
+                        opacity: 0.8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#000',
+                      }}
+                    >
+                      {event.threat_level}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                    {event.summary.substring(0, 100)}...
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 상세 정보 패널 */}
+        {selectedEvent && (
+          <div style={{
+            width: 400,
+            background: 'rgba(0,0,0,0.5)',
+            borderLeft: '1px solid rgba(255,255,255,0.06)',
+            padding: '20px',
+            overflow: 'auto',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#00e676' }}>
+                {categoryEmoji[selectedEvent.category as keyof typeof categoryEmoji] || '📰'} {selectedEvent.category.toUpperCase()}
+              </div>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.3)',
+                  cursor: 'pointer',
+                  fontSize: 18,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+                {selectedEvent.title}
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
+                {selectedEvent.summary}
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
+                {lang === 'ko' ? '관련 국가' : 'Countries'}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {selectedEvent.countries.map(c => (
+                  <span
+                    key={c}
+                    style={{
+                      background: 'rgba(0,230,118,0.1)',
+                      border: '1px solid rgba(0,230,118,0.3)',
+                      color: '#00e676',
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
-        ) : Object.keys(markets).length === 0 ? (
-          <div className="flex flex-col items-center justify-center w-full h-full gap-4">
-            <span style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', fontSize: 13 }}>
-              {lang === 'ko' ? '데이터 수집 중입니다.' : 'Fetching market data...'}
-            </span>
-            <span style={{ color: 'rgba(255,255,255,0.15)', fontFamily: 'monospace', fontSize: 11 }}>
-              {lang === 'ko' ? '첫 수집은 최대 1분 소요됩니다' : 'First fetch may take up to 1 minute'}
-            </span>
-          </div>
-        ) : (
-          <MarketWorldMap markets={markets} onCountryClick={handleCountryClick} />
         )}
-
-        {/* 글로벌 스프레드 오버레이 (지도 위) */}
-        {spreadOpen && spreadTicker && spreadOrigin && (
-          <GlobalSpreadOverlay
-            ticker={spreadTicker}
-            markets={markets}
-            originCode={spreadOrigin}
-            onClose={handleCloseSpread}
-          />
-        )}
-
-        {/* 국가 패널 */}
-        <MarketPanel
-          countryCode={selectedCode}
-          countryName={selectedName}
-          clickPosition={clickPos}
-          onClose={handleCloseCountry}
-          isOpen={panelOpen && !spreadOpen}
-          onSelectStock={handleSelectStock}
-        />
-
-        {/* 종목 상세 패널 */}
-        <StockDetailPanel
-          ticker={stockTicker}
-          onClose={handleCloseStock}
-          onShowSpread={handleShowSpread}
-          isOpen={stockPanelOpen && !spreadOpen}
-        />
       </div>
     </div>
   )
