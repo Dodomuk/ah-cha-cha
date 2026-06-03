@@ -47,7 +47,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://api-ah-cha-cha.onrender.com' : 'http://localhost:8000')
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://ah-cha-cha.onrender.com' : 'http://localhost:8000')
 
     const fetchEvents = async () => {
       try {
@@ -70,7 +70,7 @@ export default function HomePage() {
     const connectWebSocket = () => {
       try {
         const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://api-ah-cha-cha.onrender.com' : 'http://localhost:8000')
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://ah-cha-cha.onrender.com' : 'http://localhost:8000')
         const wsProtocol = apiBase.startsWith('https') ? 'wss:' : 'ws:'
         const wsHost = apiBase.replace(/^https?:\/\//, '')
         ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`)
