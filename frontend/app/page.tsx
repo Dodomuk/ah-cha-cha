@@ -83,7 +83,7 @@ const countryCoordinates: Record<string, [number, number]> = {
 
 export default function HomePage() {
   const [events, setEvents] = useState<Event[]>([])
-  const [currentEventIndex, setCurrentEventIndex] = useState(0)
+  const [currentEventId, setCurrentEventId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [displayedTitleWords, setDisplayedTitleWords] = useState<string[]>([])
   const [displayedSummaryWords, setDisplayedSummaryWords] = useState<string[]>([])
@@ -105,8 +105,11 @@ export default function HomePage() {
       try {
         const res = await fetch(`${apiBase}/api/events?limit=50&language=en`)
         const data = await res.json()
-        setEvents(data.events || [])
-        setCurrentEventIndex(0)
+        const newEvents = data.events || []
+        setEvents(newEvents)
+        if (newEvents.length > 0 && !currentEventId) {
+          setCurrentEventId(newEvents[0].id)
+        }
       } catch (e) {
         console.error('Failed to fetch events:', e)
       } finally {
@@ -135,8 +138,9 @@ export default function HomePage() {
           try {
             const message = JSON.parse(event.data)
             if (message.type === 'new_event') {
-              setEvents((prev) => [message, ...prev].slice(0, 50))
-              setCurrentEventIndex(0)
+              const newEvent = message.event || message
+              setEvents((prev) => [newEvent, ...prev].slice(0, 50))
+              setCurrentEventId(newEvent.id)
               setShowNewEventBadge(true)
               if (newEventTimer) clearTimeout(newEventTimer)
               const timer = setTimeout(() => {
@@ -185,7 +189,11 @@ export default function HomePage() {
     }
 
     const timer = setInterval(() => {
-      setCurrentEventIndex((prev) => (prev + 1) % events.length)
+      setCurrentEventId((prevId) => {
+        const currentIdx = events.findIndex(e => e.id === prevId)
+        const nextIdx = (currentIdx + 1) % events.length
+        return events[nextIdx]?.id || events[0]?.id || null
+      })
     }, SLIDESHOW_INTERVAL)
 
     slideshowIntervalRef.current = timer
@@ -196,7 +204,14 @@ export default function HomePage() {
         slideshowIntervalRef.current = null
       }
     }
-  }, [events.length, isPlaying])
+  }, [events, isPlaying])
+
+  // currentEventId를 기반으로 currentEventIndex 계산
+  const currentEventIndex = useMemo(() => {
+    if (!currentEventId || events.length === 0) return 0
+    const index = events.findIndex(e => e.id === currentEventId)
+    return index >= 0 ? index : 0
+  }, [currentEventId, events])
 
   const currentEvent = events[currentEventIndex]
 
@@ -629,8 +644,8 @@ export default function HomePage() {
                       <div
                         key={event.id}
                         onClick={() => {
-                          if (idx !== currentEventIndex) {
-                            setCurrentEventIndex(idx)
+                          if (event.id !== currentEventId) {
+                            setCurrentEventId(event.id)
                             setIsPlaying(false)
                             if (slideshowIntervalRef.current) {
                               clearInterval(slideshowIntervalRef.current)
@@ -644,8 +659,8 @@ export default function HomePage() {
                           }
                         }}
                         style={{
-                          background: idx === currentEventIndex ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${idx === currentEventIndex ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                          background: event.id === currentEventId ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${event.id === currentEventId ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
                           padding: 8,
                           marginBottom: 6,
                           borderRadius: 4,
@@ -654,13 +669,13 @@ export default function HomePage() {
                         }}
                         onMouseEnter={(e) => {
                           const el = e.currentTarget as HTMLElement
-                          if (idx !== currentEventIndex) {
+                          if (event.id !== currentEventId) {
                             el.style.background = 'rgba(255,255,255,0.08)'
                           }
                         }}
                         onMouseLeave={(e) => {
                           const el = e.currentTarget as HTMLElement
-                          if (idx !== currentEventIndex) {
+                          if (event.id !== currentEventId) {
                             el.style.background = 'rgba(255,255,255,0.05)'
                           }
                         }}
@@ -673,7 +688,7 @@ export default function HomePage() {
                         <div style={{
                           fontSize: 11,
                           fontWeight: 600,
-                          color: idx === currentEventIndex ? '#00e676' : '#fff',
+                          color: event.id === currentEventId ? '#00e676' : '#fff',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
