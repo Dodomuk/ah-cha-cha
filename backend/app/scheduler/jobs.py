@@ -60,26 +60,8 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=60,
     )
-    scheduler.add_job(
-        market_job,
-        IntervalTrigger(minutes=15),
-        id="market_fetch",
-        replace_existing=True,
-        misfire_grace_time=60,
-    )
-    from datetime import timedelta as _td
-    first_run = datetime.now(timezone.utc) + _td(seconds=60)
-    # 무버스 프리패치: 서버 시작 60초 후 첫 실행, 이후 4시간마다
-    scheduler.add_job(
-        movers_prefetch_job,
-        IntervalTrigger(hours=4),
-        id="movers_prefetch",
-        replace_existing=True,
-        misfire_grace_time=300,
-        next_run_time=first_run,
-    )
     scheduler.start()
-    logger.info("Scheduler started (news: 30min, market: 15min, movers: 4h)")
+    logger.info("Scheduler started (news: 30min)")
 
 
 def stop_scheduler() -> None:
