@@ -1,145 +1,284 @@
-# 아차차 — AI 프롬프트 명세
+# AI 프롬프트 명세
 
-**버전:** 0.2
-**작성일:** 2026-05-21
-**최종 수정:** 2026-05-25
-**모델:** `claude-haiku-4-5-20251001`
+**버전:** 2.0
+**최종 수정:** 2026-06-04
 
 ---
 
-## 1. 목적
+## 1. 번역 프롬프트
 
-RSS 피드에서 수집한 보안 뉴스 제목을 Claude Haiku API로 처리하여 아래를 추출:
-1. 한국어 한 줄 요약 제목
-2. 사건 개요 (한국어, 3~5문장)
-3. 피해/영향 요약 (한국어, 2~3문장)
-4. 위협 레벨 (0~4 정수)
-5. 관련 국가 ISO 3166-1 alpha-2 코드 배열
+### 목적
+한국어 뉴스 기사 제목/요약을 영어로 번역
 
-> **입력 데이터:** 기사 본문이 아닌 **제목(source_title)만** 사용한다. RSS 피드 특성상 본문 접근이 불필요하며, 제목 앞 500자로 잘라 전송한다.
+### 모델
+- `claude-3-5-haiku-20241022`
+- Max tokens: 1024
+
+### 프롬프트
+
+```
+Translate the following Korean text to English. Return ONLY the translation, nothing else:
+
+{original_text}
+```
+
+### 입력 예제
+
+```
+한국어로 많은 보안 기업들이 러시아 정부의 지원으로 국가 재정이 악화되었다고 보도했습니다.
+```
+
+### 출력 예제
+
+```
+Many security companies reported that Russia's national finances deteriorated with government support.
+```
+
+### 프롬프트 엔지니어링 노트
+
+- **간결성**: "ONLY the translation"으로 부가 설명 방지
+- **재시도**: 실패 시 최대 3회 재시도
+- **에러 처리**: 번역 실패 시 원본 반환
 
 ---
 
-## 2. 데이터 수집 출처 (RSS)
+## 2. 키워드 추출 (레거시)
 
-| 피드명 | 도메인 | 비고 |
-|--------|--------|------|
-| The Hacker News | thehackernews.com | 국제 |
-| BleepingComputer | bleepingcomputer.com | 국제 |
-| Krebs on Security | krebsonsecurity.com | 국제 |
-| Dark Reading | darkreading.com | 국제 |
-| AhnLab ASEC | asec.ahnlab.com | 국내 |
-| 보안뉴스 | boannews.com | 국내 |
-| 데일리시큐 | dailysecu.com | 국내 |
+### 목적
+기사에서 주요 고유명사 추출
+
+### 규칙
+
+```python
+# 3글자 이상 고유명사만
+import re
+
+def extract_keywords(text: str) -> list[str]:
+    # 대문자로 시작하는 단어 추출
+    pattern = r'\b[A-Z][a-z]{2,}\b'
+    keywords = re.findall(pattern, text)
+    return list(set(keywords))  # 중복 제거
+```
+
+### 입력 예제
+
+```
+"Russia and United States held talks about security. The summit was held in Geneva."
+```
+
+### 출력 예제
+
+```
+["Russia", "United States", "The", "Geneva"]
+```
+
+### 개선 사항
+
+- "The", "And" 같은 조사/관사 제외
+- 동일 변형 정규화 (Russia vs. Russian)
+- 국가명 확인 (ISO 3166-1)
 
 ---
 
-## 3. 시스템 프롬프트
+## 3. 카테고리 분류 (향후)
+
+### 목적
+뉴스 기사를 카테고리별로 자동 분류
+
+### 예상 카테고리
 
 ```
-당신은 사이버 보안 뉴스 분석가입니다.
-주어진 뉴스 기사를 분석하여 JSON 형식으로 정보를 추출합니다.
-모든 텍스트 출력은 반드시 한국어로 작성하세요.
+- conflict: 국제 분쟁, 전쟁
+- disaster: 재난, 자연재해
+- cyber: 사이버 공격
+- political: 정치 사건
+- economic: 경제 뉴스
+- health: 보건 사건
+- general: 기타
 ```
 
----
-
-## 4. 유저 프롬프트 템플릿
+### 프롬프트 (미구현)
 
 ```
-다음 보안 뉴스 기사를 분석하고 JSON으로 응답하세요.
+Classify the following news article into ONE category:
+conflict | disaster | cyber | political | economic | health | general
 
-제목: {title}
+Article: {title} {summary}
 
-다음 형식으로만 응답하세요 (다른 텍스트 없이):
-{
-  "summary_title": "한 줄 요약 제목 (50자 이내, 한국어)",
-  "summary_what": "무슨 일이 있었는지 설명 (3~5문장, 한국어)",
-  "summary_impact": "어떤 피해나 영향이 발생했는지 (2~3문장, 한국어)",
-  "threat_level": 위협_레벨_숫자,
-  "country_codes": ["ISO_코드1", "ISO_코드2"]
-}
-
-위협 레벨 기준:
-- 0: 보안과 무관하거나 경미한 일반 정보
-- 1: 보안 패치 권고, 취약점 발견, 경미한 피싱
-- 2: 소규모 해킹, 데이터 유출, 취약점 악용
-- 3: 금융기관/기업 침해, 대규모 데이터 유출
-- 4: 국가기반시설 공격, 사이버전, 대규모 랜섬웨어
-
-country_codes에는 사건과 직접 관련된 국가만 ISO 3166-1 alpha-2 코드로 포함하세요.
-국가를 특정할 수 없으면 빈 배열 []을 반환하세요.
+Return ONLY the category name, nothing else.
 ```
 
 ---
 
-## 5. 위협 레벨 상세 기준
+## 4. 위협 수준 판정 (향후)
 
-| 레벨 | 이름 | 설명 | 예시 |
-|------|------|------|------|
-| 0 | 정보 없음 | 보안과 무관하거나 경미한 일반 정보 | 제품 출시 발표, 보안 컨퍼런스 일정 |
-| 1 | 낮음 | 보안 패치 권고, 취약점 발견, 경미한 피싱 | CVE 발표, 소프트웨어 업데이트 권고 |
-| 2 | 중간 | 소규모 해킹, 데이터 유출, 취약점 악용 | 중소기업 해킹, 수만 건 개인정보 유출 |
-| 3 | 높음 | 금융기관/기업 침해, 대규모 데이터 유출 | 은행 해킹, 수백만 건 이상 유출 |
-| 4 | 심각 | 국가기반시설 공격, 사이버전, 대규모 랜섬웨어 | 병원/전력망 랜섬웨어, 국가 지원 공격 |
+### 목적
+기사의 영향도 기반 위협 수준 산정 (1-4)
 
-> **지도 표시 기준:** 국가별 최근 168시간(7일) 내 기사의 **최고 threat_level** 값이 지도 색상에 반영된다. threat_level이 0이거나 country_codes가 비어있는 기사는 지도에 표시되지 않는다.
+### 판정 기준
+
+```
+1. 낮음: 일반 뉴스, 관심 수준
+2. 중간: 지역 분쟁, 재난 (피해 제한적)
+3. 높음: 다국가 영향, 사이버 공격
+4. 매우 높음: 대규모 재해, 전면전, 감염병
+```
+
+### 프롬프트 (미구현)
+
+```
+Based on the article, assign a threat level from 1-4:
+
+1 = Low impact general news
+2 = Regional incident, limited impact
+3 = Multi-country impact, cyberattack
+4 = Major disaster, widespread impact
+
+Article: {title} {summary}
+
+Return ONLY a number (1-4), nothing else.
+```
 
 ---
 
-## 6. 응답 예시
+## 5. API 호출 구현
 
-### 입력
-```
-제목: Major Ransomware Attack Hits South Korean Hospitals
+### Python 코드 (FastAPI)
+
+```python
+import anthropic
+from app.config import settings
+
+def translate_to_english(text: str) -> str:
+    """한국어 텍스트를 영어로 번역"""
+    if not text or not is_korean(text):
+        return text
+    
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        message = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": f"Translate the following Korean text to English. "
+                          f"Return ONLY the translation, nothing else:\n\n{text}"
+            }]
+        )
+        return message.content[0].text.strip()
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text
+
+def is_korean(text: str) -> bool:
+    """텍스트에 한국어가 포함되어 있는지 확인"""
+    if not text:
+        return False
+    for char in text:
+        if ord(char) >= 0xAC00 and ord(char) <= 0xD7A3:  # 한글 범위
+            return True
+    return False
 ```
 
-### 출력
-```json
-{
-  "summary_title": "한국 병원 12곳 랜섬웨어 공격으로 환자 관리 시스템 마비",
-  "summary_what": "화요일, 한국 내 12개 이상의 병원이 랜섬웨어 공격을 받아 환자 관리 시스템이 일제히 마비됐습니다. 공격자들은 병원 내부 네트워크에 침투해 주요 데이터를 암호화했으며, 복호화 키 대가로 금전을 요구한 것으로 알려졌습니다. 일부 병원에서는 수술 일정이 취소되는 등 의료 서비스에 심각한 차질이 발생했습니다.",
-  "summary_impact": "최소 12개 병원의 전산 시스템이 수 시간 동안 마비되어 신규 환자 접수 및 수술 예약이 전면 중단됐습니다. 복구에는 최소 48시간 이상 소요될 것으로 예상됩니다.",
-  "threat_level": 4,
-  "country_codes": ["KR"]
-}
+### 성능 최적화
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1000)
+def translate_to_english_cached(text: str) -> str:
+    """번역 결과 캐싱"""
+    return translate_to_english(text)
 ```
+
+---
+
+## 6. 비용 추정
+
+### Haiku 모델 가격 (2026-06-04 기준)
+
+| 항목 | 비용 |
+|------|------|
+| 입력 | $0.80 / 1M 토큰 |
+| 출력 | $4.00 / 1M 토큰 |
+
+### 일일 사용량 추정
+
+- 기사당 평균 800 입력 토큰 + 100 출력 토큰
+- 일일 50개 기사 수집 시:
+  - 입력: 50 × 800 = 40,000 토큰
+  - 출력: 50 × 100 = 5,000 토큰
+  - 일일 비용: (40,000 × 0.8 + 5,000 × 4) / 1,000,000 = **$0.052**
+  - 월 비용: **~$1.56**
 
 ---
 
 ## 7. 에러 처리
 
-| 상황 | 처리 방법 |
-|------|-----------|
-| JSON 파싱 실패 | `ai_processed=false` 유지, 다음 사이클에 재시도 |
-| 보안 무관 뉴스 | `threat_level: 0` 으로 저장, 지도에 반영 안 함 |
-| 국가 특정 불가 | `country_codes: []` 로 저장 |
-| API 키 미설정 | 요약 건너뜀, 경고 로그 출력 |
-| API 호출 실패 (429 등) | `ai_processed=false` 유지 |
+### 재시도 로직
+
+```python
+import time
+
+def translate_with_retry(text: str, max_retries: int = 3) -> str:
+    """실패 시 재시도"""
+    for attempt in range(max_retries):
+        try:
+            return translate_to_english(text)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Translation failed after {max_retries} attempts")
+                return text
+            time.sleep(2 ** attempt)  # 지수 백오프
+```
 
 ---
 
-## 8. 스케줄 및 운영 방식
+## 8. 모니터링
 
-| 항목 | 내용 |
-|------|------|
-| RSS 수집 스케줄 | 매일 06:00 KST (APScheduler) |
-| AI 요약 실행 | `TEST_MODE=false` 시 수집 직후 자동 실행 |
-| TEST_MODE | 수집만 자동 실행, 요약은 `POST /api/internal/summarize` 수동 트리거 |
-| 동시 처리 수 | 3건 (`asyncio.Semaphore(3)`) — 429 방지 |
-| RSS 수집 한도 | 최대 100건/회 |
-| 처리 배치 크기 | 최대 100건/회 |
-| 사용량 로그 | `backend/logs/api_usage.log` (JSON Lines) |
+### 번역 로그
+
+```python
+def translate_to_english_logged(text: str) -> str:
+    result = translate_to_english(text)
+    print(f"Translated: {text[:50]}... → {result[:50]}...")
+    return result
+```
+
+### 메트릭 추적
+
+```python
+class TranslationMetrics:
+    total_calls = 0
+    total_tokens = 0
+    errors = 0
+    
+    @classmethod
+    def log_call(cls, input_tokens: int, output_tokens: int):
+        cls.total_calls += 1
+        cls.total_tokens += input_tokens + output_tokens
+    
+    @classmethod
+    def log_error(cls):
+        cls.errors += 1
+```
 
 ---
 
-## 9. 비용
+## 9. 향후 개선사항
 
-| 항목 | 수치 |
-|------|------|
-| Haiku 입력 가격 | $0.80 / 1M tokens |
-| Haiku 출력 가격 | $4.00 / 1M tokens |
-| 1건당 입력 토큰 | ~350 tokens |
-| 1건당 출력 토큰 | ~200 tokens |
-| 실측 1회 처리 비용 (75건) | ~$0.14 |
-| **월 추정 비용 (1회/일)** | **~$4~5** |
+- [ ] 캐싱 통합 (Redis)
+- [ ] 배치 번역 (10개 기사 동시 처리)
+- [ ] 다국어 지원 (일본어, 중국어)
+- [ ] 자동 카테고리 분류
+- [ ] 위협 수준 자동 판정
+- [ ] 감정 분석 (긍정/부정)
+- [ ] 지역/국가 자동 추출
+
+---
+
+## 10. 참고 자료
+
+- [Claude API 문서](https://docs.anthropic.com)
+- [Haiku 모델 사양](https://docs.anthropic.com/en/docs/about/models/overview)
+- [프롬프트 엔지니어링 가이드](https://docs.anthropic.com/en/docs/build-a-chatbot-with-claude)

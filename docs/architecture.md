@@ -1,176 +1,330 @@
 # 아차차 — 시스템 아키텍처
 
-**버전:** 1.0
-**최종 수정:** 2026-06-02
+**버전:** 2.0 (Breaking News Dashboard)
+**최종 수정:** 2026-06-04
 
 ---
 
 ## 1. 전체 구조 개요
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                        사용자 브라우저                      │
-│           Next.js + D3.js + Canvas (Vercel)              │
-└───────────────────────┬─────────────────────────────────┘
-                        │ REST API (HTTPS)
-┌───────────────────────▼─────────────────────────────────┐
-│               FastAPI 백엔드 (Render Docker)               │
-│   ┌─────────────────┐  ┌──────────────────────────────┐  │
-│   │   API Router     │  │        Scheduler              │  │
-│   │ /market/...     │  │  Market: 15분 간격             │  │
-│   │ /legacy/...     │  │  News: 30분 간격               │  │
-│   └─────────────────┘  └──────────────────────────────┘  │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-        ┌───────────────┼──────────────────┐
-        ▼               ▼                  ▼
-┌──────────────┐ ┌─────────────┐  ┌──────────────────┐
-│  PostgreSQL  │ │  yfinance   │  │  RSS 피드 + Claude │
-│  (Supabase)  │ │  (Yahoo Fi) │  │  (레거시 /legacy) │
-└──────────────┘ └─────────────┘  └──────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│              사용자 브라우저 (Next.js + React)              │
+│         https://ahchacha.com (Vercel CDN)                  │
+│  - D3.js 세계 지도 렌더링                                    │
+│  - 실시간 속보 카드 애니메이션                                │
+│  - WebSocket + Polling 연결                                 │
+└────────────────────┬─────────────────────────────────────┘
+                     │ REST API + WebSocket (HTTPS)
+┌────────────────────▼─────────────────────────────────────┐
+│         FastAPI 백엔드 (Render Docker)                    │
+│       https://ah-cha-cha.onrender.com                     │
+│                                                            │
+│  ┌──────────────────┐      ┌──────────────────────────┐  │
+│  │   API Routes     │      │   Scheduler + WebSocket  │  │
+│  │ GET /api/events  │      │   - 실시간 뉴스 수집        │  │
+│  │ WS /ws           │      │   - 자동 번역 (Claude)     │  │
+│  │ POST /internal/* │      │   - 브라우저로 스트리밍    │  │
+│  └──────────────────┘      └──────────────────────────┘  │
+│                                                            │
+│  ┌──────────────────┐      ┌──────────────────────────┐  │
+│  │  SQLAlchemy ORM  │      │     AI 모듈                │  │
+│  │  - 모델 정의      │      │  - Claude API 통합         │  │
+│  │  - 데이터 조작    │      │  - 한국어 감지 & 번역      │  │
+│  │  - 키워드 추출    │      │  - 카테고리 분류          │  │
+│  └──────────────────┘      └──────────────────────────┘  │
+└────────────────────┬─────────────────────────────────────┘
+                     │ 데이터 계층
+        ┌────────────┼──────────────┐
+        ▼            ▼              ▼
+┌──────────────┐ ┌─────────────┐ ┌──────────────┐
+│  PostgreSQL  │ │ Redis Cache │ │  외부 API    │
+│  (Supabase)  │ │  (선택)      │ │  (뉴스 소스) │
+└──────────────┘ └─────────────┘ └──────────────┘
 ```
 
 ---
 
-## 2. 메인 서비스 — 전 세계 증시 대시보드
+## 2. 메인 서비스 — 실시간 속보 대시보드
 
 ### 2-1. 데이터 흐름
 
 ```
-yfinance.download(tickers, period="5d")
-    ↓ 30개국 지수 일괄 요청
-파싱: 현재값, 전일 종가, 등락률(%), 등락폭
+[뉴스 소스]
+  ├─ RSS 피드
+  ├─ API 통합
+  └─ 웹 스크래핑
     ↓
-market_snapshots (DB upsert — country_code 기준)
-market_history (일별 OHLCV 누적)
+[백엔드 수집기]
+  ├─ 중복 검사
+  ├─ 언어 감지 (한국어 여부)
+  └─ 원본 저장
     ↓
-GET /api/market/countries → 프론트 지도 렌더링
-GET /api/market/country/{code} → 클릭 패널 + 30일 히스토리
+[Claude API 번역]
+  ├─ 한국어만 영어로 번역
+  ├─ 제목 + 요약 번역
+  └─ 번역 캐싱
+    ↓
+[키워드 추출]
+  ├─ 고유명사 추출
+  ├─ 국가 코드 매핑
+  └─ 카테고리 분류
+    ↓
+[NewsArticle 저장]
+  ├─ title (영어)
+  ├─ summary (영어)
+  ├─ keywords
+  ├─ threat_level (1-4)
+  ├─ country_codes
+  └─ collected_at
+    ↓
+[API 응답]
+  GET /api/events (HTTP)
+    └─ 최신 50개 기사 + 번역
+  WS /ws (WebSocket)
+    └─ 새 속보 실시간 스트리밍
+    ↓
+[프론트엔드 렌더링]
+  ├─ 팝업 카드 애니메이션
+  ├─ 단어별 reveal (2-3개 묶음)
+  ├─ 상대 시간 표시
+  ├─ 자동 슬라이드쇼 (12초 간격)
+  └─ 세계 지도 마커
 ```
 
-### 2-2. 수집 스케줄
+### 2-2. 수집 및 처리
 
-- **15분 간격** (APScheduler IntervalTrigger)
-- yfinance는 API 키 없이 Yahoo Finance 데이터 사용 (무료)
-- 다운로드 1회 호출로 전체 30개 티커 일괄 처리
+**뉴스 수집 스케줄:**
+- 주기: 5분 (또는 설정 가능)
+- 소스: RSS 피드, API 통합
+- 중복 제거: URL 기반
 
-### 2-3. 시장 운영 시간 판단
+**번역 프로세스:**
+1. `is_korean(text)` - 한국어 감지 (Unicode U+AC00-U+D7A3)
+2. 한국어 있으면만 `translate_to_english()` 호출
+3. Claude Haiku 모델로 번역 (최대 토큰: 1024)
+4. 번역 실패 시 원본 반환
 
-`market_config.py`에 각 시장별 UTC 기준 open/close 시간 저장.
-현재 UTC 시각과 비교해 `is_open: bool` 결정.
-자정 넘김(예: 호주 23:00~05:00) 처리 포함.
+**위협 수준 판단:**
+- 1: 낮음 (일반 뉴스)
+- 2: 중간 (국제 분쟁, 재난)
+- 3: 높음 (사이버 공격, 테러)
+- 4: 매우 높음 (대규모 사건)
 
-### 2-4. 지도 컬러 스킴
+### 2-3. 실시간 업데이트
 
-| 등락률 | 색상 |
-|--------|------|
-| +3% 이상 | 진초록 `rgb(0,255,100)` |
-| +0% ~ +3% | 연초록 (강도 비례) |
-| 데이터 없음 | 회색 `#0e1a1a` |
-| 0% ~ -3% | 연빨강 (강도 비례) |
-| -3% 이하 | 진빨강 `rgb(255,0,0)` |
+**WebSocket 연결:**
+```
+프론트엔드
+  ↓
+브라우저: 수동으로 /ws 연결 시도
+  ↓
+백엔드: ConnectionManager에 등록
+  ↓
+새 이벤트 발생 시:
+  └─ `manager.broadcast()` → 모든 클라이언트에 푸시
+     {"type": "new_event", "event": {...}}
+```
 
----
+**Polling Fallback:**
+- WebSocket 실패 시 자동으로 30초 주기 polling 시작
+- GET /api/events?limit=50
 
-## 3. 레거시 서비스 — 보안 인텔리전스 (/legacy)
+### 2-4. 프론트엔드 UX 기능
 
-`ahchacha.com/legacy`에서 서비스 중. 한국어 전용.
-
-### 3-1. RSS 수집 소스 (7개)
-
-| 매체 | 분류 |
+| 기능 | 구현 |
 |------|------|
-| The Hacker News | 글로벌 |
-| BleepingComputer | 글로벌 |
-| Krebs on Security | 글로벌 |
-| Dark Reading | 글로벌 |
-| ASEC Blog (AhnLab) | 국내 |
-| 보안뉴스 | 국내 |
-| 데일리시큐 | 국내 |
-
-### 3-2. 키워드 필터 (10개 카테고리)
-
-ransomware, APT, vulnerability/CVE, data breach, mobile, finance/crypto, infrastructure, cloud, nation-state, Korea
-
-### 3-3. Claude Haiku 요약
-
-- 모델: `claude-haiku-4-5-20251001`
-- 출력: 한국어 제목/사건개요/피해영향 + 위협레벨(0~4) + 국가코드
-- 동시 처리: Semaphore(2)
-- U+FFFD 버그 대응: 최대 3회 재시도
+| 20초 자동 재개 | 기사 클릭 → isPlaying=false → resumeTimer 20초 → 자동 재개 |
+| 스피너 애니메이션 | 새 속보 도착 → showNewEventBadge=true → 3초 후 false |
+| 단어 묶음 애니메이션 | `chunkWords(words, 2)` → 250ms/150ms 간격 |
+| 상대 시간 | `getRelativeTime(date)` → "2h ago", "3d ago" |
+| 3일 이력 + 그룹화 | `getDateKey(date)` → "Today/Yesterday/2 days ago" |
+| 즉시 정지 | 클릭 → `slideshowIntervalRef` 즉시 정지 |
 
 ---
 
-## 4. 인프라
+## 3. 프론트엔드 아키텍처
 
-| 구성요소 | 서비스 | 비용 |
-|----------|--------|------|
-| 프론트엔드 | Vercel (Next.js App Router) | 무료 |
-| 백엔드 | Render (Docker, 단일 컨테이너) | 무료 |
+### 3-1. 핵심 컴포넌트
+
+**page.tsx (메인 대시보드)**
+- State: events[], currentEventIndex, isPlaying, displayedTitleWords, displayedSummaryWords
+- WebSocket 연결 및 관리
+- 단어별 애니메이션 (useEffect)
+- 자동 슬라이드쇼 (SLIDESHOW_INTERVAL = 12000ms)
+
+**WorldMap (레거시에서 추가됨)**
+- D3.js geoMercator 투영
+- TopoJSON 국가 경계 렌더링
+- SVG 마커 위치 지정
+- 색상 기반 위협 수준 표시
+
+**UI 라이브러리**
+- CSS-in-JS: 인라인 스타일
+- 애니메이션: @keyframes (slideDown, fadeInWord, spin, pulse)
+- Glassmorphism: backdrop-filter blur(10px)
+
+### 3-2. 실시간 연결 로직
+
+```typescript
+// 프론트엔드 초기 연결
+useEffect(() => {
+  const connectWebSocket = () => {
+    const ws = new WebSocket(wsUrl)
+    ws.onopen = () => console.log('Connected')
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data)
+      if (msg.type === 'new_event') {
+        setEvents(prev => [msg, ...prev].slice(0, 50))
+        setShowNewEventBadge(true)
+      }
+    }
+    ws.onerror = () => startPolling()
+  }
+  connectWebSocket()
+}, [])
+```
+
+---
+
+## 4. 백엔드 아키텍처
+
+### 4-1. 핵심 모듈
+
+**app/main.py**
+- FastAPI 앱 초기화
+- CORS 설정
+- 라우터 등록
+- 스케줄러 시작
+
+**app/api/routes.py**
+```python
+# 주요 엔드포인트
+GET /api/events
+  - 최신 기사 반환 (limit=50 기본)
+  - 자동 번역 적용
+  - 키워드 포함
+
+WS /ws
+  - 실시간 스트리밍
+  - ConnectionManager로 클라이언트 관리
+  - broadcast() → 모든 클라이언트에 푸시
+
+# 번역 함수
+translate_to_english(text: str) → str
+  - is_korean() 확인
+  - Claude API 호출
+  - 캐싱 (선택)
+
+extract_keywords(text: str) → list[str]
+  - 3+ 글자 고유명사 추출
+  - 정규식 기반
+```
+
+**app/models/news.py**
+```python
+class NewsArticle(Base):
+    id: UUID
+    title: str  # 원본 (한국어일 수 있음)
+    summary: str
+    category: str
+    threat_level: int (1-4)
+    country_codes: list[str]
+    keywords: list[str]
+    collected_at: DateTime
+    ai_processed: bool
+```
+
+**app/scheduler/jobs.py**
+- APScheduler 기반 주기 작업
+- 5분마다 뉴스 수집
+- 실패 시 재시도 로직
+
+### 4-2. 외부 API 통합
+
+**Claude API (번역)**
+```python
+client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+message = client.messages.create(
+    model="claude-3-5-haiku-20241022",
+    max_tokens=1024,
+    messages=[{
+        "role": "user",
+        "content": "Translate to English: {text}"
+    }]
+)
+```
+
+**뉴스 소스**
+- RSS 피드 (feedparser)
+- 뉴스 API (requests)
+- 웹 스크래핑 (BeautifulSoup)
+
+---
+
+## 5. 데이터베이스
+
+### 5-1. 주요 테이블
+
+**news_articles**
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | UUID | 기사 고유 ID |
+| title | String | 영어 제목 |
+| summary | String | 영어 요약 |
+| category | String | 뉴스 카테고리 |
+| threat_level | Integer | 위협 수준 (1-4) |
+| country_codes | Array | 관련 국가 |
+| keywords | Array | 추출 키워드 |
+| collected_at | DateTime | 수집 시간 |
+| ai_processed | Boolean | 처리 완료 여부 |
+
+**legacy_news_articles** (보안 대시보드용)
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| source_url | String | 원본 URL |
+| summary_title | String | 한국어 제목 |
+| summary_what | String | 한국어 요약 |
+| threat_level | Integer | 위협도 |
+| affected_countries | Array | 영향국가 |
+
+---
+
+## 6. 배포 구성
+
+| 구성 | 서비스 | 비용 |
+|------|--------|------|
+| 프론트엔드 | Vercel | 무료 |
+| 백엔드 | Render (Docker) | 무료 |
 | DB | Supabase (PostgreSQL) | 무료 |
 | DNS/CDN | Cloudflare | 무료 |
-| 도메인 | 가비아 (ahchacha.com) | 유료 |
 
-### DNS 구성
-
-| 레코드 | 값 |
-|--------|-----|
-| `ahchacha.com` | Vercel (CNAME flattening) |
-| `www.ahchacha.com` | Vercel (redirect) |
-| `api.ahchacha.com` | Render (CNAME) |
+### Render 설정
+- Docker 이미지: Python 3.11
+- 시작 명령: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- 헬스 체크: GET /health
+- 슬립 방지: UptimeRobot → 5분 주기 ping /health
 
 ---
 
-## 5. API 엔드포인트 목록
+## 7. 성능 고려사항
 
-### 증시 (메인)
-
-| Method | Path | 설명 |
-|--------|------|------|
-| GET | `/api/market/countries` | 전체 국가 스냅샷 (지도용) |
-| GET | `/api/market/country/{code}` | 특정 국가 상세 + 30일 이력 |
-| POST | `/api/internal/market/fetch` | 수동 수집 트리거 |
-
-### 보안 (레거시)
-
-| Method | Path | 설명 |
-|--------|------|------|
-| GET | `/api/countries` | 국가별 위협 레벨 스냅샷 |
-| GET | `/api/countries/{code}/news` | 특정 국가 보안 기사 |
-| GET | `/api/news/latest` | 최신 보안 기사 목록 |
-| GET | `/api/stats` | 수집 통계 |
-| POST | `/api/internal/collect` | RSS 수집 트리거 |
-| POST | `/api/internal/summarize` | AI 요약 트리거 |
+| 항목 | 최적화 |
+|------|--------|
+| 번역 지연 | 비동기 처리 + 캐싱 |
+| WebSocket 연결 | Fallback polling 자동 전환 |
+| DB 쿼리 | limit=50 기본, 인덱스 (collected_at) |
+| 프론트 애니메이션 | CSS @keyframes (JS 계산 최소화) |
+| 번들 크기 | D3.js 제외 (레거시에서만 사용) |
 
 ---
 
-## 6. DB 스키마 요약
+## 8. 보안
 
-### market_snapshots
-국가별 최신 지수 스냅샷 (upsert, country_code unique)
-
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| country_code | String(2) | ISO 3166-1 alpha-2 |
-| index_name | String | 영문 지수명 |
-| index_name_ko | String | 한국어 지수명 |
-| ticker | String | yfinance 티커 |
-| current_value | Float | 현재값 |
-| prev_close | Float | 전일 종가 |
-| change_pct | Float | 등락률(%) |
-| change_abs | Float | 절대 등락 |
-| is_open | Boolean | 장 운영 중 여부 |
-| updated_at | DateTime | 마지막 갱신 시각 |
-
-### market_history
-일별 OHLCV (스파크라인용)
-
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| country_code | String(2) | |
-| date | Date | 날짜 |
-| open/high/low/close | Float | OHLC |
-| volume | Float | 거래량 |
-
-### news_articles (레거시)
-보안 기사 저장. 자세한 스키마는 `db-schema.md` 참조.
+| 항목 | 조치 |
+|------|------|
+| API 인증 | 공개 (특수 엔드포인트는 토큰 필요) |
+| CORS | Vercel 도메인만 허용 |
+| HTTPS | Cloudflare SSL 필수 |
+| 환경변수 | Render 시크릿 저장소 사용 |
+| 데이터 검증 | Pydantic 스키마 |

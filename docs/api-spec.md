@@ -1,86 +1,182 @@
-# 아차차 — API 명세
+# API 명세
 
-**버전:** 0.2
-**작성일:** 2026-05-21
-**최종 수정:** 2026-05-26
-**Base URL:** `https://ah-cha-cha.onrender.com` (로컬: `http://localhost:8000`)
+**버전:** 2.0
+**최종 수정:** 2026-06-04
 
 ---
 
-## 공통
+## 1. 메인 서비스 API
 
-- 모든 응답은 `application/json`
-- 날짜/시각은 ISO 8601 (UTC) 형식: `2026-05-21T06:00:00Z`
-- 국가 코드는 ISO 3166-1 alpha-2 (예: `KR`, `US`, `CN`)
+### 1-1. 헬스 체크
 
----
+#### GET `/`
+서버 상태 확인 (Render 헬스 체크용)
 
-## 1. `GET /api/countries`
-
-지도 렌더링용. 지정 기간 내 국가별 최고 위협 레벨 맵을 `news_articles`에서 직접 집계하여 반환.
-
-### Query Parameters
-
-| 파라미터 | 기본값 | 설명 |
-|----------|--------|------|
-| `hours` | `168` | 최근 N시간 이내 기사 기준 (1~168) |
-
-### Response `200`
-
+**응답:**
 ```json
 {
-  "snapshot_at": "2026-05-21T06:00:00Z",
-  "countries": {
-    "KR": { "threat_level": 3, "article_count": 5 },
-    "US": { "threat_level": 4, "article_count": 12 },
-    "JP": { "threat_level": 1, "article_count": 2 }
+  "status": "ok",
+  "service": "Ah-Cha-Cha Breaking News API"
+}
+```
+
+**상태 코드:**
+- `200 OK`
+
+---
+
+#### GET `/health`
+상세 상태 확인
+
+**응답:**
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+### 1-2. 속보 조회
+
+#### GET `/api/events`
+최신 속보 목록 조회
+
+**쿼리 파라미터:**
+| 파라미터 | 타입 | 기본값 | 설명 |
+|---------|------|--------|------|
+| limit | integer | 50 | 반환 기사 수 (max: 100) |
+| category | string | null | 카테고리 필터 |
+
+**예제:**
+```bash
+GET /api/events?limit=20&category=conflict
+```
+
+**응답:**
+```json
+{
+  "events": [
+    {
+      "id": "a2fec09b-9edf-4c6b-a1ec-1c38a3c23ed5",
+      "title": "Russia, supported by international funding, deteriorates national finances",
+      "summary": "The Russian government is providing billions in support...",
+      "category": "conflict",
+      "threat_level": 2,
+      "countries": ["RU"],
+      "keywords": ["Russia", "Finance", "Conflict"],
+      "animation_config": null,
+      "collected_at": "2026-06-03T14:25:51.504241+00:00"
+    },
+    ...
+  ]
+}
+```
+
+**응답 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | string | 기사 고유 ID (UUID) |
+| title | string | 기사 제목 (영어, 자동 번역) |
+| summary | string | 기사 요약 (영어, 자동 번역) |
+| category | string | 카테고리 |
+| threat_level | integer | 위협 수준 (1-4) |
+| countries | array[string] | 관련 국가 코드 (ISO 3166-1 alpha-2) |
+| keywords | array[string] | 추출 키워드 |
+| animation_config | object | null (향후 확장용) |
+| collected_at | string | 수집 시간 (ISO 8601) |
+
+**상태 코드:**
+- `200 OK` - 성공
+- `400 Bad Request` - 잘못된 파라미터
+
+---
+
+### 1-3. 실시간 WebSocket
+
+#### WS `/ws`
+실시간 속보 스트리밍
+
+**연결:**
+```javascript
+const ws = new WebSocket('wss://ah-cha-cha.onrender.com/ws')
+```
+
+**메시지 형식:**
+```json
+{
+  "type": "new_event",
+  "event": {
+    "id": "...",
+    "title": "Breaking News Title",
+    "summary": "News details...",
+    ...
   }
 }
 ```
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `snapshot_at` | string | 응답 생성 시각 (현재 UTC) |
-| `countries` | object | 국가 코드 → 위협 정보 맵 (threat_level=0 국가는 미포함) |
-| `threat_level` | 1~4 | 해당 기간 기사 중 최고 위협 레벨 |
-| `article_count` | int | 해당 기간 관련 뉴스 건수 |
+**이벤트 타입:**
+- `new_event` - 새 속보 도착
+
+**예제 (JavaScript):**
+```javascript
+ws.onopen = () => console.log('Connected')
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  if (data.type === 'new_event') {
+    console.log('New article:', data.event.title)
+  }
+}
+ws.onerror = () => console.log('WebSocket failed, fallback to polling')
+```
+
+**Fallback Polling:**
+WebSocket 연결 실패 시 자동으로 30초 주기 polling 실행
 
 ---
 
-## 2. `GET /api/countries/{code}/news`
+## 2. 레거시 서비스 API (/legacy)
 
-국가 클릭 시 상세 패널용. 해당 국가의 뉴스 목록 반환.
+### 2-1. 국가별 위협 수준
 
-### Path Parameters
+#### GET `/api/countries`
+모든 국가의 최신 위협 레벨
 
-| 파라미터 | 설명 |
-|----------|------|
-| `code` | ISO 3166-1 alpha-2 국가 코드 (예: `KR`) |
-
-### Query Parameters
-
-| 파라미터 | 기본값 | 설명 |
-|----------|--------|------|
-| `hours` | `168` | 최근 N시간 이내 기사 (날짜 필터와 연동, 1~168) |
-| `limit` | `20` | 반환할 뉴스 수 (최대 50) |
-
-### Response `200`
-
+**응답:**
 ```json
 {
-  "country_code": "KR",
-  "threat_level": 3,
-  "articles": [
+  "countries": [
     {
-      "id": "uuid",
-      "summary_title": "국내 주요 금융기관 대상 DDoS 공격 발생",
-      "summary_what": "2026년 5월 21일, 국내 5대 시중은행을 포함한...",
-      "summary_impact": "약 3시간에 걸친 서비스 장애가 발생하였으며...",
+      "code": "US",
+      "threat_level": 2,
+      "total_events": 15,
+      "latest_at": "2026-06-03T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### 2-2. 국가별 기사
+
+#### GET `/api/countries/{code}/news`
+특정 국가의 보안 기사
+
+**경로 파라미터:**
+- `code` (string): ISO 3166-1 alpha-2 (예: "US", "KR")
+
+**응답:**
+```json
+{
+  "country": "KR",
+  "news": [
+    {
+      "id": "...",
+      "title": "[한국어] 제목",
+      "summary": "[한국어] 요약",
       "threat_level": 3,
-      "url": "https://example.com/news/...",
-      "source_domain": "boannews.com",
-      "published_at": "2026-05-21T04:30:00Z",
-      "collected_at": "2026-05-21T06:02:00Z"
+      "collected_at": "2026-06-03T10:00:00Z"
     }
   ]
 }
@@ -88,102 +184,59 @@
 
 ---
 
-## 3. `GET /api/news/latest`
+## 3. 에러 응답
 
-일일 리포트 패널용. 위협 레벨 높은 순으로 최근 24시간 뉴스 반환.
-
-### Query Parameters
-
-| 파라미터 | 기본값 | 설명 |
-|----------|--------|------|
-| `limit` | `30` | 반환할 뉴스 수 (최대 100) |
-| `min_level` | `1` | 최소 위협 레벨 필터 |
-
-### Response `200`
+### 표준 에러 형식
 
 ```json
 {
-  "articles": [
-    {
-      "id": "uuid",
-      "summary_title": "...",
-      "threat_level": 4,
-      "country_codes": ["US", "GB"],
-      "source_domain": "...",
-      "url": "...",
-      "collected_at": "2026-05-21T06:02:00Z"
-    }
-  ]
+  "detail": "Error message",
+  "status": 400
 }
 ```
 
----
+### 일반적인 에러 코드
 
-## 4. `POST /api/internal/collect` (내부 전용)
-
-RSS 수집 수동 트리거. `TEST_MODE=false` 시 수집 후 자동 요약까지 실행.
-
-### Headers
-
-```
-X-Internal-Key: {INTERNAL_API_KEY}
-```
-
-### Response `200`
-
-```json
-{ "message": "collection job accepted [자동 요약 포함]" }
-```
+| 상태 코드 | 설명 |
+|----------|------|
+| 400 | 잘못된 요청 |
+| 404 | 리소스 없음 |
+| 500 | 서버 오류 |
 
 ---
 
-## 5. `POST /api/internal/summarize` (내부 전용)
+## 4. 카테고리 정의
 
-미처리 기사 Claude 요약 수동 트리거. `TEST_MODE=true` 환경에서 수집 후 별도로 실행.
-
-### Headers
-
-```
-X-Internal-Key: {INTERNAL_API_KEY}
-```
-
-### Response `200`
-
-```json
-{ "message": "summarization job accepted", "pending": 42 }
-```
-
-대기 기사 없으면:
-
-```json
-{ "message": "요약 대기 기사 없음", "pending": 0 }
-```
+| 카테고리 | 설명 |
+|---------|------|
+| conflict | 국제 분쟁, 전쟁 |
+| disaster | 재난, 자연재해 |
+| cyber | 사이버 공격 |
+| political | 정치 사건 |
+| economic | 경제 뉴스 |
+| health | 보건 사건 |
+| general | 기타 |
 
 ---
 
-## 6. `GET /health` (헬스체크)
+## 5. 위협 수준 정의
 
-`HEAD` 메서드도 허용. UptimeRobot 모니터링 연동.
-
-### Response `200`
-
-```json
-{ "status": "ok" }
-```
+| 수준 | 설명 |
+|------|------|
+| 1 | 낮음 |
+| 2 | 중간 |
+| 3 | 높음 |
+| 4 | 매우 높음 |
 
 ---
 
-## 7. 에러 응답 형식
+## 6. 변경 로그
 
-```json
-{
-  "detail": "에러 설명"
-}
-```
+### v2.0 (2026-06-04)
+- 실시간 속보 대시보드 전환
+- `/api/events` 엔드포인트
+- WebSocket `/ws` 실시간 스트리밍
+- Claude API 자동 번역
 
-| HTTP 코드 | 설명 |
-|-----------|------|
-| `400` | 잘못된 요청 파라미터 |
-| `403` | 내부 API 키 불일치 |
-| `404` | 리소스 없음 |
-| `500` | 서버 내부 오류 |
+### v1.0 (2026-05-26)
+- 시장 데이터 API

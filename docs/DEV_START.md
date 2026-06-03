@@ -1,97 +1,364 @@
-# 아차차 로컬 개발 시작 가이드
+# 로컬 개발 시작 가이드
 
-## 사전 준비
-- Docker Desktop 실행 상태 확인
-- `backend/.env` 파일 존재 확인 (없으면 `.env.example` 복사 후 키 입력)
+**최종 수정:** 2026-06-04
 
 ---
 
-## 1. DB 시작 (Docker)
+## 1. 사전 요구사항
+
+- **Node.js 18+**
+  ```bash
+  node --version  # v18.0.0 이상
+  ```
+
+- **Python 3.9+**
+  ```bash
+  python3 --version  # 3.9 이상
+  ```
+
+- **Docker Desktop** (선택사항, PostgreSQL 로컬 실행용)
+
+- **Git**
+  ```bash
+  git --version
+  ```
+
+- **API 키**
+  - Anthropic Claude API 키 (https://console.anthropic.com)
+  - Supabase 계정 또는 로컬 PostgreSQL
+
+---
+
+## 2. 저장소 클론
 
 ```bash
-cd ~/Desktop/GIT/ah-cha-cha
-docker compose up -d db
+git clone https://github.com/Dodomuk/ah-cha-cha.git
+cd ah-cha-cha
 ```
 
-> 최초 1회만: DB 마이그레이션
-> ```bash
-> cd backend && source .venv/bin/activate
-> alembic upgrade head
-> ```
-
 ---
 
-## 2. 백엔드 시작
+## 3. 백엔드 설정
+
+### 3-1. 환경 변수
 
 ```bash
-cd ~/Desktop/GIT/ah-cha-cha/backend
-source .venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+cd backend
+cp .env.example .env
 ```
 
-확인: http://localhost:8000/health
+`backend/.env` 작성:
+```env
+# Database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ahchacha
+
+# API Keys
+ANTHROPIC_API_KEY=sk-ant-v7-xxxxx  # https://console.anthropic.com에서 생성
+
+# CORS (로컬 개발)
+CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+
+# 개발 모드
+DEBUG=true
+```
+
+### 3-2. 데이터베이스 (3가지 옵션)
+
+#### 옵션 A: Docker로 PostgreSQL 실행 (권장)
+
+```bash
+docker run -d \
+  --name ahchacha-db \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=ahchacha \
+  -p 5432:5432 \
+  postgres:15
+```
+
+#### 옵션 B: Supabase 사용
+
+1. https://supabase.com에서 계정 생성
+2. 새 프로젝트 생성
+3. "Connection Pooler" URI 복사
+4. `.env`에 `DATABASE_URL` 설정:
+   ```env
+   DATABASE_URL=postgresql://postgres:xxx@zzz.supabase.co:6543/postgres?sslmode=require
+   ```
+
+#### 옵션 C: 로컬 PostgreSQL
+
+```bash
+# macOS (Homebrew)
+brew install postgresql
+brew services start postgresql
+psql postgres -c "CREATE DATABASE ahchacha;"
+```
+
+### 3-3. 패키지 설치
+
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+### 3-4. 서버 시작
+
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+✅ http://localhost:8000/health 접속해서 OK 응답 확인
 
 ---
 
-## 3. 프론트엔드 시작 (새 터미널)
+## 4. 프론트엔드 설정
+
+### 4-1. 환경 변수
 
 ```bash
-cd ~/Desktop/GIT/ah-cha-cha/frontend
+cd frontend
+cat > .env.local << EOF
+NEXT_PUBLIC_API_URL=http://localhost:8000
+EOF
+```
+
+### 4-2. 패키지 설치
+
+```bash
+npm install
+```
+
+### 4-3. 개발 서버 시작
+
+```bash
 npm run dev
 ```
 
-확인: http://localhost:3000
+✅ http://localhost:3000 접속
 
 ---
 
-## 4. 증시 데이터 수동 수집
+## 5. 테스트
+
+### 백엔드 API 테스트
 
 ```bash
-curl -s -X POST http://localhost:8000/api/internal/market/fetch \
-  -H "X-Internal-Key: dev-internal-key"
+# 헬스 체크
+curl http://localhost:8000/health
+
+# 속보 조회 (초기 데이터 없음)
+curl http://localhost:8000/api/events?limit=5
+
+# WebSocket 테스트 (wscat 설치 필요)
+npm install -g wscat
+wscat -c ws://localhost:8000/ws
 ```
 
-수집 결과 확인:
+### 프론트엔드 테스트
+
+1. 브라우저 http://localhost:3000 접속
+2. 콘솔 열기 (F12)
+3. "이벤트가 없습니다" 메시지 확인
+4. API 연결 상태 확인
+
+---
+
+## 6. 더미 데이터 추가 (선택)
+
+데이터베이스에 테스트 기사 추가:
+
+```python
+# backend/seed_data.py
+import psycopg2
+from datetime import datetime, timedelta
+
+conn = psycopg2.connect(
+    dbname="ahchacha",
+    user="postgres",
+    password="postgres",
+    host="localhost"
+)
+
+cur = conn.cursor()
+
+articles = [
+    ("Breaking News Title 1", "Summary of the breaking news event 1", "conflict", 2, ["US", "RU"]),
+    ("Major Disaster Reported", "A significant disaster has occurred affecting multiple nations", "disaster", 3, ["JP"]),
+    ("Cyber Attack Alert", "Critical infrastructure targeted in coordinated attack", "cyber", 4, ["DE", "FR"]),
+]
+
+for title, summary, category, level, countries in articles:
+    cur.execute(
+        """
+        INSERT INTO news_articles 
+        (title, summary, category, threat_level, country_codes, collected_at, ai_processed)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (title, summary, category, level, countries, datetime.utcnow(), True)
+    )
+
+conn.commit()
+cur.close()
+conn.close()
+
+print("✅ 더미 데이터 추가 완료")
+```
+
 ```bash
-curl -s http://localhost:8000/api/market/countries | python3 -m json.tool | head -40
+python backend/seed_data.py
 ```
 
 ---
 
-## 5. 보안 뉴스 수집 수동 트리거 (레거시)
+## 7. 개발 워크플로우
+
+### 커밋 전 체크리스트
 
 ```bash
-curl -s -X POST http://localhost:8000/api/internal/collect \
-  -H "X-Internal-Key: dev-internal-key"
+# 프론트엔드 빌드 확인
+cd frontend
+npm run build
+
+# 린트 체크
+npm run lint
+
+# 백엔드 테스트
+cd ../backend
+python -m pytest
+
+# 커밋
+git add .
+git commit -m "feat: 기능 설명"
 ```
 
----
+### 브랜치 전략
 
-## 6. 종료
+```
+main (프로덕션)
+  ↑
+develop (스테이징)
+  ↑
+feature/기능명 (기능 개발)
+```
 
 ```bash
-# 백엔드: 실행 중인 터미널에서 Ctrl+C
-# 프론트엔드: 실행 중인 터미널에서 Ctrl+C
-
-# Docker DB 종료
-cd ~/Desktop/GIT/ah-cha-cha
-docker compose down
+# 새 기능 시작
+git checkout -b feature/새기능
+# ... 개발 ...
+git push origin feature/새기능
+# PR 생성 → 코드 리뷰 → 병합
 ```
 
 ---
 
-## 주요 포트
+## 8. 트러블슈팅
 
-| 서비스 | 포트 |
-|---|---|
-| 프론트엔드 (Next.js) | 3000 |
-| 백엔드 (FastAPI) | 8000 |
-| DB (PostgreSQL) | 5432 |
+### DB 연결 오류
+
+```
+Error: could not connect to server: Connection refused
+```
+
+**해결:**
+```bash
+# Docker 확인
+docker ps | grep ahchacha-db
+
+# 없으면 다시 시작
+docker run -d --name ahchacha-db ... (위의 docker run 명령 참고)
+```
+
+### CORS 오류
+
+```
+Access to XMLHttpRequest blocked by CORS policy
+```
+
+**해결:** `.env`의 `CORS_ORIGINS`에 프론트엔드 URL 추가
+
+```env
+CORS_ORIGINS=["http://localhost:3000"]
+```
+
+### API 키 오류
+
+```
+AuthenticationError: Invalid API key
+```
+
+**해결:** https://console.anthropic.com에서 유효한 API 키 생성 후 `.env` 업데이트
+
+### 포트 충돌
+
+```
+Address already in use
+```
+
+**해결:**
+```bash
+# macOS/Linux
+lsof -i :8000  # 포트 8000 사용 중인 프로세스 찾기
+kill -9 <PID>  # 종료
+
+# 또는 다른 포트 사용
+uvicorn app.main:app --port 8001
+```
 
 ---
 
-## 현재 상태 (2026-06-02 기준)
+## 9. VSCode 디버깅
 
-- **메인 (/)**: 전 세계 증시 대시보드 (yfinance, 15분 수집)
-- **레거시 (/legacy)**: 글로벌 보안 위협 대시보드 (RSS + Claude Haiku)
-- 배포: ahchacha.com (Vercel + Render + Supabase + Cloudflare)
+`.vscode/launch.json`:
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--reload"],
+      "jinja": true,
+      "cwd": "${workspaceFolder}/backend"
+    },
+    {
+      "name": "Next.js",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal"
+    }
+  ]
+}
+```
+
+F5로 디버깅 시작
+
+---
+
+## 10. 배포 전 체크리스트
+
+```bash
+# 1. 모든 변경사항 커밋
+git status  # 깨끗해야 함
+
+# 2. 프로덕션 빌드 테스트
+npm run build
+
+# 3. 환경 변수 확인 (Render, Vercel)
+# - DATABASE_URL
+# - ANTHROPIC_API_KEY
+# - NEXT_PUBLIC_API_URL
+
+# 4. 마지막 커밋 확인
+git log -1
+
+# 5. 푸시
+git push origin main
+```
+
+배포는 GitHub 연동으로 자동 진행됨 (Vercel, Render)

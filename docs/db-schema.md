@@ -1,114 +1,204 @@
-# 아차차 — 데이터베이스 스키마
+# 데이터베이스 스키마
 
-**버전:** 0.1
-**작성일:** 2026-05-21
-**DB:** PostgreSQL (Supabase)
-
----
-
-## 1. 테이블 목록
-
-| 테이블 | 설명 |
-|--------|------|
-| `news_articles` | 수집된 원본 뉴스 및 AI 요약 |
-| `country_threat_levels` | 국가별 위협 레벨 집계 (갱신 주기별 스냅샷) |
+**버전:** 2.0
+**최종 수정:** 2026-06-04
 
 ---
 
-## 2. `news_articles`
+## 개요
 
-뉴스 수집 + AI 요약 결과를 저장하는 핵심 테이블.
+PostgreSQL (Supabase) 기반. SQLAlchemy 2.0로 관리.
+
+---
+
+## 메인 서비스 테이블
+
+### news_articles
+
+실시간 속보 저장
 
 ```sql
 CREATE TABLE news_articles (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    url             TEXT NOT NULL UNIQUE,           -- 원문 URL (중복 방지 키)
-    source_title    TEXT,                           -- 원문 제목
-    source_domain   TEXT,                           -- 출처 도메인 (예: bbc.com)
-    published_at    TIMESTAMPTZ,                    -- 원문 발행 시각
-    collected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- 수집 시각
-
-    -- AI 생성 필드
-    summary_title   TEXT,                           -- 한국어 한 줄 요약 제목
-    summary_what    TEXT,                           -- 무슨 일이 있었는가 (한국어)
-    summary_impact  TEXT,                           -- 어떤 영향이 발생했는가 (한국어)
-    threat_level    SMALLINT NOT NULL DEFAULT 0     -- 위협 레벨 0~4
-                    CHECK (threat_level BETWEEN 0 AND 4),
-    country_codes   TEXT[],                         -- 관련 국가 ISO 코드 배열 (예: ['KR','US'])
-
-    -- 상태
-    ai_processed    BOOLEAN NOT NULL DEFAULT FALSE, -- AI 처리 완료 여부
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,           -- 영어 (자동 번역됨)
+  summary TEXT NOT NULL,          -- 영어 (자동 번역됨)
+  original_title TEXT,            -- 원본 (한국어일 수 있음)
+  original_summary TEXT,          -- 원본
+  category VARCHAR(50),           -- conflict, disaster, cyber, etc
+  threat_level INTEGER CHECK (threat_level BETWEEN 1 AND 4),
+  country_codes TEXT[],           -- ['US', 'KR', ...]
+  keywords TEXT[],                -- ['Russia', 'Finance', ...]
+  animation_config JSONB,         -- null (향후 확장)
+  collected_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  ai_processed BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  INDEX idx_collected_at (collected_at DESC),
+  INDEX idx_threat_level (threat_level),
+  INDEX idx_category (category),
+  INDEX idx_country_codes (country_codes)
 );
+```
 
-CREATE INDEX idx_news_country_codes ON news_articles USING GIN (country_codes);
-CREATE INDEX idx_news_collected_at  ON news_articles (collected_at DESC);
-CREATE INDEX idx_news_threat_level  ON news_articles (threat_level);
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | UUID | 기사 고유 ID |
+| title | TEXT | 영어 제목 (Claude API로 번역) |
+| summary | TEXT | 영어 요약 (Claude API로 번역) |
+| original_title | TEXT | 원본 제목 |
+| original_summary | TEXT | 원본 요약 |
+| category | VARCHAR(50) | 뉴스 카테고리 |
+| threat_level | INTEGER | 위협 수준 (1-4) |
+| country_codes | TEXT[] | 관련 국가 배열 |
+| keywords | TEXT[] | 추출 키워드 배열 |
+| animation_config | JSONB | 애니메이션 설정 (null) |
+| collected_at | TIMESTAMP TZ | 수집 시간 (UTC) |
+| ai_processed | BOOLEAN | AI 처리 완료 여부 |
+| created_at | TIMESTAMP TZ | 기록 생성 시간 |
+| updated_at | TIMESTAMP TZ | 최종 수정 시간 |
+
+**인덱스:**
+- `collected_at DESC` - 최신 기사 조회 성능
+- `threat_level` - 위협 수준 필터링
+- `category` - 카테고리 필터링
+- `country_codes` - 국가별 조회
+
+---
+
+## 레거시 서비스 테이블
+
+### news_articles (레거시)
+
+보안 뉴스 저장 (한국어 전용)
+
+```sql
+CREATE TABLE news_articles_legacy (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_url TEXT UNIQUE NOT NULL,
+  source_name VARCHAR(100),              -- "ASEC Blog", "보안뉴스", etc
+  summary_title TEXT NOT NULL,           -- 한국어 제목
+  summary_what TEXT NOT NULL,            -- 한국어 요약
+  threat_level INTEGER CHECK (threat_level BETWEEN 0 AND 4),
+  affected_countries TEXT[],             -- ['KR', 'US', ...]
+  category VARCHAR(50),                  -- 카테고리
+  collected_at TIMESTAMP WITH TIME ZONE,
+  ai_processed BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  INDEX idx_collected_at (collected_at DESC),
+  INDEX idx_threat_level (threat_level)
+);
 ```
 
 ---
 
-## 3. `country_threat_levels` (미사용)
+### threat_levels (레거시)
 
-> **현재 구현에서 이 테이블은 사용하지 않는다.**
-> `GET /api/countries?hours=N` 요청 시 `news_articles`에서 직접 집계하므로 별도 캐시 테이블 불필요.
-> 아래 스키마는 향후 캐싱 최적화 시 참고용으로만 보존.
+국가별 위협 레벨 스냅샷
 
 ```sql
-CREATE TABLE country_threat_levels (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    country_code    CHAR(2) NOT NULL,               -- ISO 3166-1 alpha-2
-    threat_level    SMALLINT NOT NULL DEFAULT 0
-                    CHECK (threat_level BETWEEN 0 AND 4),
-    article_count   INTEGER NOT NULL DEFAULT 0,     -- 해당 사이클 뉴스 건수
-    snapshot_at     TIMESTAMPTZ NOT NULL,           -- 집계 기준 시각 (갱신 사이클)
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE threat_levels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  country_code VARCHAR(2) NOT NULL,
+  threat_level INTEGER,
+  last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  UNIQUE(country_code),
+  INDEX idx_country_code (country_code)
 );
 ```
 
 ---
 
-## 4. 주요 쿼리 패턴
+## 데이터 관계도
 
-### 4.1 지도용: 최신 국가별 위협 레벨 전체 조회
-
-```sql
-SELECT DISTINCT ON (country_code)
-    country_code,
-    threat_level,
-    snapshot_at
-FROM country_threat_levels
-ORDER BY country_code, snapshot_at DESC;
+```
+news_articles
+  ├─ country_codes → ISO 3166-1 alpha-2
+  ├─ category → enum (conflict, disaster, ...)
+  ├─ threat_level → 1-4
+  └─ keywords → array
+      
+threat_levels
+  └─ country_code → ISO 3166-1 alpha-2
 ```
 
-### 4.2 국가 클릭 시: 해당 국가 최신 뉴스 목록
+---
+
+## 쿼리 예제
+
+### 최신 기사 50개 조회
 
 ```sql
-SELECT
-    id, summary_title, summary_what, summary_impact,
-    threat_level, url, source_domain, published_at
+SELECT id, title, summary, category, threat_level, country_codes, keywords, collected_at
 FROM news_articles
-WHERE country_codes @> ARRAY['KR']
-  AND collected_at >= NOW() - INTERVAL '24 hours'
-ORDER BY threat_level DESC, collected_at DESC
-LIMIT 20;
-```
-
-### 4.3 스케줄러: 미처리 뉴스 배치 조회
-
-```sql
-SELECT id, url, source_title
-FROM news_articles
-WHERE ai_processed = FALSE
-ORDER BY collected_at ASC
+ORDER BY collected_at DESC
 LIMIT 50;
 ```
 
+### 위협 수준 3 이상 기사
+
+```sql
+SELECT id, title, threat_level, country_codes
+FROM news_articles
+WHERE threat_level >= 3
+ORDER BY collected_at DESC
+LIMIT 20;
+```
+
+### 특정 국가 관련 기사
+
+```sql
+SELECT id, title, threat_level, collected_at
+FROM news_articles
+WHERE country_codes @> ARRAY['US']  -- PostgreSQL 배열 연산
+ORDER BY collected_at DESC
+LIMIT 20;
+```
+
+### 국가별 위협 레벨
+
+```sql
+SELECT country_code, threat_level, last_updated
+FROM threat_levels
+ORDER BY threat_level DESC;
+```
+
 ---
 
-## 5. 데이터 보관 정책 (미결)
+## 성능 최적화
 
-- 현재 미정: 뉴스를 영구 보관할지, 일정 기간 후 삭제할지 결정 필요
-- 후보 1: 90일 보관 후 삭제 (비용 절감)
-- 후보 2: 영구 보관 (히스토리 기능 확장 여지)
-- → [prd.md Open Question #3](../prd.md) 참고
+| 항목 | 전략 |
+|------|------|
+| 대량 조회 | `collected_at DESC` 인덱스 |
+| 필터링 | `threat_level`, `category` 인덱스 |
+| 국가 검색 | `country_codes` 배열 인덱스 |
+| 자동 정리 | cron: 90일 이상 기사 삭제 |
+
+---
+
+## 백업 및 복구
+
+Supabase 자동 백업 (일일)
+
+- 일일 백업: 최대 7일 보관
+- 복구: Supabase 대시보드에서 원클릭 복구
+
+---
+
+## 마이그레이션
+
+SQLAlchemy로 관리됨 (`app/models/news.py`)
+
+새 버전 배포 시:
+```bash
+# 스키마 확인
+alembic current
+
+# 마이그레이션 생성 (필요 시)
+alembic revision --autogenerate -m "message"
+
+# 적용
+alembic upgrade head
+```
