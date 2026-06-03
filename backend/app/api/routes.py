@@ -406,3 +406,38 @@ async def trigger_retranslation(
 
     asyncio.create_task(_run())
     return {"message": "retranslation job accepted", "limit": limit}
+
+
+@router.get("/events")
+def get_events(
+    limit: int = 50,
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """최근 이벤트 목록 (뉴스 기반)."""
+    query = select(NewsArticle).where(
+        NewsArticle.ai_processed.is_(True),
+        NewsArticle.threat_level > 0,
+    )
+    
+    if category:
+        query = query.where(NewsArticle.category == category)
+    
+    query = query.order_by(NewsArticle.collected_at.desc()).limit(min(limit, 100))
+    articles = db.execute(query).scalars().all()
+    
+    return {
+        "events": [
+            {
+                "id": str(a.id),
+                "title": a.summary_title,
+                "summary": a.summary_what,
+                "category": a.category or "general",
+                "threat_level": a.threat_level,
+                "countries": a.country_codes or [],
+                "animation_config": a.animation_config,
+                "collected_at": a.collected_at.isoformat() if a.collected_at else None,
+            }
+            for a in articles
+        ]
+    }
