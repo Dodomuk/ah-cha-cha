@@ -11,6 +11,7 @@ from app.models.schemas import (
     TrendResponse, TrendPoint, SearchResponse,
 )
 from app.config import settings
+import anthropic
 
 router = APIRouter()
 
@@ -456,6 +457,39 @@ def extract_keywords(text: str, max_keywords: int = 3) -> list[str]:
     return keywords if keywords else []
 
 
+def is_korean(text: str) -> bool:
+    """텍스트에 한국어가 포함되어 있는지 확인."""
+    if not text:
+        return False
+    for char in text:
+        if ord(char) >= 0xAC00 and ord(char) <= 0xD7A3:  # 한글 범위
+            return True
+    return False
+
+
+def translate_to_english(text: str) -> str:
+    """한국어 텍스트를 영어로 번역 (Claude API 사용)."""
+    if not text or not is_korean(text):
+        return text
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        message = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Translate the following Korean text to English. Return ONLY the translation, nothing else:\n\n{text}"
+                }
+            ]
+        )
+        return message.content[0].text.strip()
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text
+
+
 @router.get("/events")
 def get_events(
     limit: int = 50,
@@ -484,10 +518,10 @@ def get_events(
         "events": [
             {
                 "id": str(a.id),
-                "title": a.summary_title_en or a.summary_title,
-                "summary": a.summary_what_en or a.summary_what,
+                "title": a.summary_title_en or translate_to_english(a.summary_title) if a.summary_title else "",
+                "summary": a.summary_what_en or translate_to_english(a.summary_what) if a.summary_what else "",
                 "category": a.category or "general",
-                "keywords": extract_keywords((a.summary_what_en or a.summary_what or "") + " " + (a.summary_title_en or a.summary_title or "")),
+                "keywords": extract_keywords((a.summary_what_en or translate_to_english(a.summary_what) if a.summary_what else "") + " " + (a.summary_title_en or translate_to_english(a.summary_title) if a.summary_title else "")),
                 "threat_level": a.threat_level,
                 "countries": a.country_codes or [],
                 "animation_config": a.animation_config,
