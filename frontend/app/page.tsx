@@ -2,7 +2,6 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useEffect, useMemo } from 'react'
-import { useLangStore } from '@/lib/langStore'
 import Link from 'next/link'
 import * as d3 from 'd3'
 
@@ -34,7 +33,6 @@ const countryCoordinates: Record<string, [number, number]> = {
 }
 
 export default function HomePage() {
-  const { lang } = useLangStore()
   const [events, setEvents] = useState<Event[]>([])
   const [currentEventIndex, setCurrentEventIndex] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -580,11 +578,16 @@ export default function HomePage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            flexDirection: 'column',
+            gap: 16,
             color: 'rgba(255,255,255,0.3)',
             fontFamily: 'monospace',
             zIndex: 50,
           }}>
-            {lang === 'ko' ? '이벤트가 없습니다' : 'No events'}
+            <div style={{ fontSize: 14 }}>No events available</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', maxWidth: 400, textAlign: 'center' }}>
+              Backend service may be initializing. Please check Render dashboard if issue persists.
+            </div>
           </div>
         )}
       </div>
