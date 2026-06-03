@@ -434,17 +434,45 @@ async def trigger_retranslation(
     return {"message": "retranslation job accepted", "limit": limit}
 
 
+def extract_keywords(text: str, max_keywords: int = 3) -> list[str]:
+    """텍스트에서 주요 키워드 추출 (단어 길이 4자 이상, 대문자 단어 우선)."""
+    if not text:
+        return []
+
+    # 대문자로 시작하거나 모두 대문자인 단어들 추출 (고유명사 우선)
+    words = text.split()
+    proper_nouns = [w.strip('.,!?;:') for w in words if len(w.strip('.,!?;:')) >= 4 and (w[0].isupper() or w.isupper())]
+
+    # 중복 제거 (순서 보존)
+    seen = set()
+    keywords = []
+    for word in proper_nouns:
+        if word.lower() not in seen and word.lower() not in ['the', 'and', 'that', 'this']:
+            keywords.append(word)
+            seen.add(word.lower())
+            if len(keywords) >= max_keywords:
+                break
+
+    return keywords if keywords else []
+
+
 @router.get("/events")
 def get_events(
     limit: int = 50,
     category: Optional[str] = None,
+    language: Optional[str] = "en",
     db: Session = Depends(get_db),
 ):
-    """최근 이벤트 목록 (뉴스 기반)."""
+    """최근 이벤트 목록 (뉴스 기반). language=en으로 영어 기사만 필터링."""
     query = select(NewsArticle).where(
         NewsArticle.ai_processed.is_(True),
         NewsArticle.threat_level > 0,
     )
+
+    # 언어 필터링
+    if language == "en":
+        # summary_title_en이 있으면 영어로 분류
+        query = query.where(NewsArticle.summary_title_en.isnot(None))
 
     if category:
         query = query.where(NewsArticle.category == category)
@@ -456,9 +484,10 @@ def get_events(
         "events": [
             {
                 "id": str(a.id),
-                "title": a.summary_title,
-                "summary": a.summary_what,
+                "title": a.summary_title_en or a.summary_title,
+                "summary": a.summary_what_en or a.summary_what,
                 "category": a.category or "general",
+                "keywords": extract_keywords((a.summary_what_en or a.summary_what or "") + " " + (a.summary_title_en or a.summary_title or "")),
                 "threat_level": a.threat_level,
                 "countries": a.country_codes or [],
                 "animation_config": a.animation_config,

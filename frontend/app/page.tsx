@@ -1,32 +1,51 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
+import { useState, useEffect, useMemo } from 'react'
 import { useLangStore } from '@/lib/langStore'
 import Link from 'next/link'
-import EventMap from './components/EventMap'
+import * as d3 from 'd3'
+
+const WorldMap = dynamic(() => import('@/components/map/WorldMap'), {
+  ssr: false,
+})
 
 interface Event {
   id: string
   title: string
   summary: string
   category: string
+  keywords?: string[]
   threat_level: number
   countries: string[]
   animation_config?: string
   collected_at: string
 }
 
+const SLIDESHOW_INTERVAL = 12000
+
+const countryCoordinates: Record<string, [number, number]> = {
+  US: [-95, 37], CA: [-106, 56], MX: [-102, 23], BR: [-51, -14], AR: [-63, -38],
+  GB: [-3, 54], FR: [2, 46], DE: [10, 51], IT: [12, 42], ES: [-3, 40],
+  RU: [105, 61], CN: [105, 35], IN: [78, 20], JP: [138, 36],
+  AU: [133, -25], NZ: [174, -40], SG: [103, 1], TH: [100, 15], PH: [122, 12],
+  TR: [35, 39], SA: [45, 24], AE: [54, 24], IL: [35, 31], EG: [30, 26],
+  ZA: [24, -30], NG: [8, 9], KE: [36, 0], CO: [-74, 4],
+}
+
 export default function HomePage() {
-  const { lang, setLang } = useLangStore()
+  const { lang } = useLangStore()
   const [events, setEvents] = useState<Event[]>([])
-  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const [currentEventIndex, setCurrentEventIndex] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'latest' | 'history'>('latest')
-  const [animationKey, setAnimationKey] = useState(0)
+  const [displayedTitleWords, setDisplayedTitleWords] = useState<string[]>([])
+  const [displayedSummaryWords, setDisplayedSummaryWords] = useState<string[]>([])
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [resumeTimer, setResumeTimer] = useState<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    document.title = lang === 'ko' ? 'Ah-Cha-Cha — 실시간 속보' : 'Ah-Cha-Cha — Breaking News'
-  }, [lang])
+    document.title = 'Ah-Cha-Cha — Breaking News'
+  }, [])
 
   useEffect(() => {
     const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
@@ -34,10 +53,10 @@ export default function HomePage() {
 
     const fetchEvents = async () => {
       try {
-        const limit = tab === 'latest' ? 50 : 200
-        const res = await fetch(`${apiBase}/api/events?limit=${limit}`)
+        const res = await fetch(`${apiBase}/api/events?limit=50&language=en`)
         const data = await res.json()
         setEvents(data.events || [])
+        setCurrentEventIndex(0)
       } catch (e) {
         console.error('Failed to fetch events:', e)
       } finally {
@@ -47,7 +66,6 @@ export default function HomePage() {
 
     fetchEvents()
 
-    // WebSocket 연결
     let ws: WebSocket | null = null
     let reconnectTimeout: NodeJS.Timeout | null = null
 
@@ -68,6 +86,7 @@ export default function HomePage() {
             const message = JSON.parse(event.data)
             if (message.type === 'new_event') {
               setEvents((prev) => [message, ...prev].slice(0, 50))
+              setCurrentEventIndex(0)
             }
           } catch (e) {
             console.error('WebSocket message parse error:', e)
@@ -89,7 +108,6 @@ export default function HomePage() {
 
     connectWebSocket()
 
-    // Fallback: 30초 폴링
     const interval = setInterval(fetchEvents, 30000)
 
     return () => {
@@ -97,7 +115,61 @@ export default function HomePage() {
       if (reconnectTimeout) clearTimeout(reconnectTimeout)
       if (ws) ws.close()
     }
-  }, [tab])
+  }, [])
+
+  useEffect(() => {
+    if (events.length === 0 || !isPlaying) return
+
+    const timer = setInterval(() => {
+      setCurrentEventIndex((prev) => (prev + 1) % events.length)
+    }, SLIDESHOW_INTERVAL)
+
+    return () => clearInterval(timer)
+  }, [events.length, isPlaying])
+
+  const currentEvent = events[currentEventIndex]
+
+  // 단어별 애니메이션 (Word-by-word reveal)
+  useEffect(() => {
+    if (!currentEvent) return
+
+    const titleWords = (currentEvent.title || '')
+      .split(' ')
+      .filter(w => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
+    const summaryWords = (currentEvent.summary || '')
+      .split(' ')
+      .filter(w => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
+    let titleIndex = 0
+    let summaryIndex = 0
+
+    setTimeout(() => {
+      setDisplayedTitleWords([])
+      setDisplayedSummaryWords([])
+    }, 0)
+
+    const titleTimer = setInterval(() => {
+      if (titleIndex < titleWords.length) {
+        setDisplayedTitleWords((prev) => [...prev, titleWords[titleIndex]])
+        titleIndex++
+      } else {
+        clearInterval(titleTimer)
+      }
+    }, 250)
+
+    const summaryTimer = setInterval(() => {
+      if (summaryIndex < summaryWords.length) {
+        setDisplayedSummaryWords((prev) => [...prev, summaryWords[summaryIndex]])
+        summaryIndex++
+      } else {
+        clearInterval(summaryTimer)
+      }
+    }, 150)
+
+    return () => {
+      clearInterval(titleTimer)
+      clearInterval(summaryTimer)
+    }
+  }, [currentEventIndex, currentEvent])
 
   const categoryEmoji: Record<string, string> = {
     security: '🔒',
@@ -105,6 +177,13 @@ export default function HomePage() {
     politics: '🏛️',
     tech: '💻',
     sports: '⚽',
+    health: '🏥',
+    environment: '🌍',
+    economy: '📈',
+    science: '🔬',
+    entertainment: '🎬',
+    disaster: '🚨',
+    business: '💼',
     general: '📰',
   }
 
@@ -115,8 +194,93 @@ export default function HomePage() {
     return '#4caf50'
   }
 
+  // 팝업 위치 계산 (나라 위에 표시)
+  const popupPosition = useMemo(() => {
+    if (!currentEvent || currentEvent.countries.length === 0) {
+      return { bottom: 20, left: 20 }
+    }
+
+    const firstCountry = currentEvent.countries[0]
+    const coord = countryCoordinates[firstCountry]
+
+    if (!coord || typeof window === 'undefined') {
+      return { bottom: 20, left: 20 }
+    }
+
+    const width = window.innerWidth
+    const height = window.innerHeight
+
+    const projection = d3.geoMercator()
+      .translate([width / 2, height / 2])
+      .scale(width / 6.3)
+
+    const projected = projection(coord as [number, number])
+
+    if (!projected) {
+      return { bottom: 20, left: 20 }
+    }
+
+    let top = projected[1] - 100
+    let left = projected[0] - 240
+
+    // 화면 경계 처리
+    if (top < 20) top = 20
+    if (left < 20) left = 20
+    if (left + 480 > width) left = width - 500
+
+    return { top, left, bottom: 'auto', right: 'auto' }
+  }, [currentEvent])
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#000' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#000', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-30px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes fadeInWord {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes borderGlow {
+          0%, 100% {
+            border-color: rgba(0, 230, 118, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 230, 118, 0.05), inset 0 0 20px rgba(0, 230, 118, 0.05);
+          }
+          50% {
+            border-color: rgba(0, 230, 118, 0.4);
+            box-shadow: 0 8px 32px rgba(0, 230, 118, 0.2), inset 0 0 20px rgba(0, 230, 118, 0.1);
+          }
+        }
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 0.7;
+            filter: drop-shadow(0 0 4px rgba(0, 230, 118, 0.3));
+          }
+          50% {
+            opacity: 1;
+            filter: drop-shadow(0 0 8px rgba(0, 230, 118, 0.6));
+          }
+        }
+      `}</style>
       {/* 헤더 */}
       <header style={{
         background: 'rgba(0,0,0,0.92)',
@@ -125,36 +289,17 @@ export default function HomePage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        zIndex: 100,
       }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#00e676', fontFamily: 'monospace' }}>
-            Ah-Cha-Cha
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#00e676', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ animation: 'spin 20s linear infinite' }}>🌍</span> Ah-Cha-Cha
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-            {lang === 'ko' ? '실시간 속보' : 'BREAKING NEWS'}
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+            Real-time Global News Intelligence
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {(['en', 'ko'] as const).map(l => (
-              <button
-                key={l}
-                onClick={() => setLang(l)}
-                style={{
-                  background: lang === l ? 'rgba(0,230,118,0.2)' : 'transparent',
-                  border: `1px solid ${lang === l ? '#00e676' : 'rgba(255,255,255,0.1)'}`,
-                  color: lang === l ? '#00e676' : 'rgba(255,255,255,0.5)',
-                  padding: '4px 8px',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontWeight: 600,
-                }}
-              >
-                {l === 'en' ? '🇺🇸' : '🇰🇷'}
-              </button>
-            ))}
-          </div>
           <Link href="/legacy" style={{
             fontSize: 11,
             color: 'rgba(255,255,255,0.3)',
@@ -165,217 +310,281 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* 메인 콘텐츠 */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* 이벤트 목록 */}
-        <div style={{
-          flex: '1',
-          borderRight: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          {/* 탭 */}
+      {/* 메인: 지도 전체 */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {loading ? (
           <div style={{
+            position: 'absolute',
+            inset: 0,
             display: 'flex',
-            gap: 0,
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-            padding: '0 20px',
-            background: 'rgba(0,0,0,0.3)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#00e676',
+            fontFamily: 'monospace',
+            fontSize: 14,
+            zIndex: 50,
           }}>
-            {(['latest', 'history'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                onMouseEnter={(e) => {
-                  if (tab !== t) {
-                    const el = e.currentTarget as HTMLElement
-                    el.style.color = 'rgba(255,255,255,0.6)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (tab !== t) {
-                    const el = e.currentTarget as HTMLElement
-                    el.style.color = 'rgba(255,255,255,0.3)'
-                  }
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: tab === t ? '#00e676' : 'rgba(255,255,255,0.3)',
-                  padding: '12px 16px',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderBottom: tab === t ? '2px solid #00e676' : 'none',
-                  transition: 'color 0.2s',
-                }}
-              >
-                {t === 'latest' ? (lang === 'ko' ? '최신' : 'Latest') : (lang === 'ko' ? '이력' : 'History')}
-              </button>
-            ))}
+            Loading...
           </div>
+        ) : currentEvent ? (
+          <>
+            {/* 세계 지도 (왼쪽으로 이동) */}
+            <div style={{ position: 'absolute', inset: 0, transform: 'translateX(-80px)', pointerEvents: 'none' }}>
+              <WorldMap
+                threatData={Object.fromEntries(
+                  currentEvent.countries.map(code => [
+                    code,
+                    {
+                      threat_level: Math.min(currentEvent.threat_level, 4) as 1 | 2 | 3 | 4,
+                      confirmed: 0,
+                      deaths: 0,
+                      recovered: 0,
+                      article_count: 1,
+                    }
+                  ])
+                )}
+                dateKey={`${currentEventIndex}`}
+              />
+            </div>
 
-          {/* 이벤트 목록 */}
-          <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
-            {loading ? (
-              <div style={{ color: '#00e676', fontFamily: 'monospace' }}>
-                {lang === 'ko' ? '로딩 중...' : 'Loading...'}
+            {/* 팝업 카드 */}
+            <div style={{
+              position: 'absolute',
+              ...popupPosition,
+              width: 'min(100%, 480px)',
+              background: 'rgba(10, 25, 47, 0.4)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(0, 230, 118, 0.2)',
+              borderRadius: 12,
+              padding: 20,
+              zIndex: 50,
+              boxShadow: '0 8px 32px rgba(0, 230, 118, 0.05), inset 0 0 20px rgba(0, 230, 118, 0.05)',
+              animation: 'slideDown 0.5s ease-out, borderGlow 3s ease-in-out infinite',
+            } as React.CSSProperties}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'start', marginBottom: 12 }}>
+                <span style={{ fontSize: 32 }}>
+                  {categoryEmoji[currentEvent.category as keyof typeof categoryEmoji] || '📰'}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#00e676', textTransform: 'uppercase' }}>
+                      {currentEvent.category}
+                    </div>
+                    <div
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 3,
+                        background: threatColor(currentEvent.threat_level),
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8, lineHeight: 1.3 }}>
+                    {displayedTitleWords.map((word, i) => (
+                      <span key={i} style={{ animation: `fadeInWord 0.2s ease-in ${i * 0.07}s both`, display: 'inline' }}>
+                        {word}{' '}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5, marginBottom: 8 }}>
+                    {displayedSummaryWords.map((word, i) => (
+                      <span key={i} style={{ animation: `fadeInWord 0.2s ease-in ${i * 0.05}s both`, display: 'inline' }}>
+                        {word}{' '}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {currentEvent.countries.map(c => (
+                      <span
+                        key={c}
+                        style={{
+                          background: 'rgba(0,230,118,0.1)',
+                          border: '1px solid rgba(0,230,118,0.3)',
+                          color: '#00e676',
+                          padding: '2px 8px',
+                          borderRadius: 3,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                  {currentEvent.keywords && currentEvent.keywords.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {currentEvent.keywords.map((keyword, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            background: 'rgba(100, 200, 255, 0.1)',
+                            border: '1px solid rgba(100, 200, 255, 0.2)',
+                            color: 'rgba(100, 200, 255, 0.8)',
+                            padding: '2px 8px',
+                            borderRadius: 3,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          #{keyword}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : events.length === 0 ? (
-              <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
-                {lang === 'ko' ? '이벤트가 없습니다' : 'No events'}
+
+              {/* 진행 표시 */}
+              <div style={{
+                fontSize: 11,
+                color: 'rgba(255,255,255,0.4)',
+                paddingTop: 12,
+                borderTop: '1px solid rgba(255,255,255,0.1)',
+                marginTop: 12,
+              }}>
+                Auto-rotating ({currentEventIndex + 1}/{events.length})
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {events.map(event => (
+            </div>
+
+            {/* 이벤트 리스트 (우상단) */}
+            <div style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 'min(100%, 300px)',
+              maxHeight: 'calc(100% - 60px)',
+              background: 'rgba(10, 25, 47, 0.5)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(0, 230, 118, 0.15)',
+              borderRadius: 12,
+              overflow: 'auto',
+              zIndex: 40,
+              boxShadow: '0 8px 32px rgba(0, 230, 118, 0.02)',
+            }}>
+              <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
+                background: 'rgba(0, 230, 118, 0.03)',
+                position: 'sticky',
+                top: 0,
+                zIndex: 41,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#00e676' }}>
+                  Latest News
+                </div>
+                <button
+                  onClick={() => setIsPlaying(!isPlaying)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#00e676',
+                    fontSize: 16,
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title={isPlaying ? 'Pause' : 'Play'}
+                >
+                  {isPlaying ? '⏸' : '▶'}
+                </button>
+              </div>
+
+              <div style={{ padding: 8 }}>
+                {events.map((event, idx) => (
                   <div
                     key={event.id}
-                    onClick={() => setSelectedEvent(event)}
-                    onMouseEnter={(e) => {
-                      const el = e.currentTarget as HTMLElement
-                      el.style.background = 'rgba(255,255,255,0.08)'
-                      el.style.borderColor = 'rgba(0,230,118,0.2)'
-                    }}
-                    onMouseLeave={(e) => {
-                      const el = e.currentTarget as HTMLElement
-                      el.style.background = 'rgba(255,255,255,0.05)'
-                      el.style.borderColor = 'rgba(255,255,255,0.08)'
+                    onClick={() => {
+                      if (idx !== currentEventIndex) {
+                        setCurrentEventIndex(idx)
+                        setIsPlaying(false)
+                        if (resumeTimer) clearTimeout(resumeTimer)
+                        const timer = setTimeout(() => {
+                          setIsPlaying(true)
+                        }, 20000)
+                        setResumeTimer(timer)
+                      }
                     }}
                     style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: `1px solid rgba(255,255,255,0.08)`,
-                      padding: '12px',
-                      borderRadius: 6,
+                      background: idx === currentEventIndex ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
+                      border: `1px solid ${idx === currentEventIndex ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      padding: 8,
+                      marginBottom: 6,
+                      borderRadius: 4,
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
+                    onMouseEnter={(e) => {
+                      const el = e.currentTarget as HTMLElement
+                      if (idx !== currentEventIndex) {
+                        el.style.background = 'rgba(255,255,255,0.08)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      const el = e.currentTarget as HTMLElement
+                      if (idx !== currentEventIndex) {
+                        el.style.background = 'rgba(255,255,255,0.05)'
+                      }
+                    }}
                   >
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'start', marginBottom: 6 }}>
-                      <span style={{ fontSize: 18 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'start' }}>
+                      <span style={{ fontSize: 12, flexShrink: 0 }}>
                         {categoryEmoji[event.category as keyof typeof categoryEmoji] || '📰'}
                       </span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: idx === currentEventIndex ? '#00e676' : '#fff',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
                           {event.title}
                         </div>
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-                          {event.countries.join(', ')} {event.category}
+                        <div style={{
+                          fontSize: 9,
+                          color: 'rgba(255,255,255,0.4)',
+                          marginTop: 2,
+                        }}>
+                          {event.countries.join(', ')}
                         </div>
                       </div>
                       <div
                         style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: '50%',
+                          width: 12,
+                          height: 12,
+                          borderRadius: 3,
                           background: threatColor(event.threat_level),
-                          opacity: 0.8,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: '#000',
+                          flexShrink: 0,
+                          animation: 'pulse 2s ease-in-out infinite',
+                          boxShadow: `0 0 8px ${threatColor(event.threat_level)}`,
                         }}
-                      >
-                        {event.threat_level}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                      {event.summary.substring(0, 100)}...
+                      />
                     </div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* 상세 정보 패널 */}
-        {selectedEvent && (
+            </div>
+          </>
+        ) : (
           <div style={{
-            width: 'min(100%, 450px)',
-            minWidth: '280px',
-            background: 'rgba(0,0,0,0.6)',
-            borderLeft: '1px solid rgba(255,255,255,0.06)',
-            padding: '20px',
-            overflow: 'auto',
-            maxHeight: '100%',
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(255,255,255,0.3)',
+            fontFamily: 'monospace',
+            zIndex: 50,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#00e676' }}>
-                {categoryEmoji[selectedEvent.category as keyof typeof categoryEmoji] || '📰'} {selectedEvent.category.toUpperCase()}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => setAnimationKey(k => k + 1)}
-                  style={{
-                    background: 'rgba(0,230,118,0.1)',
-                    border: '1px solid rgba(0,230,118,0.3)',
-                    color: '#00e676',
-                    padding: '4px 8px',
-                    borderRadius: 3,
-                    cursor: 'pointer',
-                    fontSize: 10,
-                    fontWeight: 600,
-                  }}
-                >
-                  {lang === 'ko' ? '재생' : 'Replay'}
-                </button>
-                <button
-                  onClick={() => setSelectedEvent(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.3)',
-                    cursor: 'pointer',
-                    fontSize: 18,
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
-                {selectedEvent.title}
-              </div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
-                {selectedEvent.summary}
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
-                {lang === 'ko' ? '관련 국가' : 'Countries'}
-              </div>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {selectedEvent.countries.map(c => (
-                  <span
-                    key={c}
-                    style={{
-                      background: 'rgba(0,230,118,0.1)',
-                      border: '1px solid rgba(0,230,118,0.3)',
-                      color: '#00e676',
-                      padding: '2px 6px',
-                      borderRadius: 3,
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {c}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <EventMap
-              key={`${selectedEvent.id}-${animationKey}`}
-              title={selectedEvent.title}
-              countries={selectedEvent.countries}
-              animationConfig={selectedEvent.animation_config}
-              threatLevel={selectedEvent.threat_level}
-            />
+            {lang === 'ko' ? '이벤트가 없습니다' : 'No events'}
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
+import * as topojson from 'topojson-client'
 
 interface Arrow {
   from: string
@@ -59,8 +60,16 @@ export default function EventMap({ title, countries, animationConfig, threatLeve
   useEffect(() => {
     const loadAndRender = async () => {
       try {
-        const width = 380
-        const height = 250
+        if (!svgRef.current) {
+          console.error('SVG ref not found')
+          return
+        }
+
+        const width = window.innerWidth
+        const height = window.innerHeight
+
+        console.log('Rendering map with size:', width, height)
+
         const svg = d3.select(svgRef.current)
         svg.selectAll('*').remove()
 
@@ -68,9 +77,50 @@ export default function EventMap({ title, countries, animationConfig, threatLeve
           .attr('width', width)
           .attr('height', height)
           .style('background', '#0a0a0a')
+          .style('display', 'block')
+
+        // 배경 (대양)
+        svg.append('rect')
+          .attr('width', width)
+          .attr('height', height)
+          .attr('fill', '#0d1f2d')
 
         const g = svg.append('g')
-        const projection = d3.geoMercator().fitSize([width, height], { type: 'Point', coordinates: [0, 20] } as any)
+
+        const projection = d3.geoMercator()
+          .translate([width / 2, height / 2])
+          .scale(width / 6.3)
+
+        const path = d3.geoPath(projection)
+
+        // 세계 지도 데이터 로드
+        const world = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json())
+
+        // 대양/대지 표시
+        g.append('path')
+          .datum({ type: 'Sphere' } as any)
+          .attr('d', path as any)
+          .attr('fill', '#0d1f2d')
+
+        // 국가 경계선
+        const countries = topojson.feature(world, world.objects.countries)
+        g.append('g')
+          .selectAll('path')
+          .data((countries as any).features)
+          .join('path')
+          .attr('d', path as any)
+          .attr('fill', '#1a3a52')
+          .attr('stroke', 'rgba(255,255,255,0.1)')
+          .attr('stroke-width', 0.5)
+
+        // 격자 (경도/위도)
+        const graticule = d3.geoGraticule()
+        g.append('path')
+          .datum(graticule)
+          .attr('d', path as any)
+          .attr('stroke', 'rgba(255,255,255,0.05)')
+          .attr('stroke-width', 0.5)
+          .attr('fill', 'none')
 
         let config: AnimationConfig | null = null
         if (animationConfig) {
@@ -81,7 +131,12 @@ export default function EventMap({ title, countries, animationConfig, threatLeve
           }
         }
 
-        const affectedCountries = config?.affected_countries || countries
+        const affectedCountries: string[] = Array.isArray(config?.affected_countries)
+          ? (config.affected_countries as string[])
+          : Array.isArray(countries)
+          ? (countries as string[])
+          : []
+
         const color = threatColor(threatLevel)
 
         affectedCountries.forEach((code: string) => {
@@ -181,14 +236,13 @@ export default function EventMap({ title, countries, animationConfig, threatLeve
   }, [countries, animationConfig, threatLevel, title])
 
   return (
-    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+    <div style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}>
       <svg
         ref={svgRef}
         style={{
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 6,
-          maxWidth: '100%',
-          height: 'auto',
+          width: '100%',
+          height: '100%',
+          display: 'block',
         }}
       />
     </div>

@@ -16,32 +16,32 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시',
-  description: '전 세계 30개국 주요 증시 등락률을 실시간 세계 지도로 시각화. S&P500, 나스닥, 코스피, 닛케이 등 주요 지수를 한눈에 확인하세요.',
-  keywords: ['주식', '증시', '세계 증시', 'S&P500', '나스닥', '코스피', '닛케이', 'DAX', '주가 지수', 'stock market', 'world markets', 'market dashboard'],
-  authors: [{ name: '아차차' }],
+  title: 'Ah-Cha-Cha — Breaking News',
+  description: 'Real-time global breaking news visualized on an interactive world map. Stay informed about the latest international events.',
+  keywords: ['breaking news', 'global news', 'world events', 'news dashboard', 'live news', 'international news'],
+  authors: [{ name: 'Ah-Cha-Cha' }],
   metadataBase: new URL('https://ahchacha.com'),
   alternates: {
     canonical: 'https://ahchacha.com',
   },
   openGraph: {
-    title: '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시',
-    description: '전 세계 30개국 주요 증시를 실시간 세계 지도로. 오늘 어느 나라 주식이 오르고 내렸는지 바로 확인.',
+    title: 'Ah-Cha-Cha — Breaking News',
+    description: 'Real-time global breaking news on an interactive world map.',
     url: 'https://ahchacha.com',
-    siteName: '아차차',
-    locale: 'ko_KR',
+    siteName: 'Ah-Cha-Cha',
+    locale: 'en_US',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: '아차차 — 아는 순간 차이 나는 차세대 글로벌 증시',
-    description: '전 세계 30개국 주요 증시를 실시간 세계 지도로. 오늘 어느 나라 주식이 오르고 내렸는지 바로 확인.',
+    title: 'Ah-Cha-Cha — Breaking News',
+    description: 'Real-time global breaking news on an interactive world map.',
   },
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: '아차차',
+    title: 'Ah-Cha-Cha',
   },
   icons: {
     icon: [
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className={`${geistMono.variable} h-full`}>
+    <html lang="en" className={`${geistMono.variable} h-full`}>
       <body className="h-full antialiased" style={{ fontFamily: 'var(--font-geist-mono), monospace' }}>
         <Providers>{children}</Providers>
       </body>
