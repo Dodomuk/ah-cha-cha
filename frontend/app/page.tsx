@@ -88,11 +88,9 @@ export default function HomePage() {
   const [displayedTitleWords, setDisplayedTitleWords] = useState<string[]>([])
   const [displayedSummaryWords, setDisplayedSummaryWords] = useState<string[]>([])
   const [isPlaying, setIsPlaying] = useState(true)
-  const [resumeTimer, setResumeTimer] = useState<NodeJS.Timeout | null>(null)
-  const [showNewEventBadge, setShowNewEventBadge] = useState(false)
-  const [newEventTimer, setNewEventTimer] = useState<NodeJS.Timeout | null>(null)
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('Today')
   const slideshowIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const resumeTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     document.title = 'Ah-Cha-Cha — Breaking News'
@@ -120,61 +118,10 @@ export default function HomePage() {
 
     fetchEvents()
 
-    let ws: WebSocket | null = null
-    let reconnectTimeout: NodeJS.Timeout | null = null
-
-    const connectWebSocket = () => {
-      try {
-        const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://ah-cha-cha.onrender.com' : 'http://localhost:8000')
-        const wsProtocol = apiBase.startsWith('https') ? 'wss:' : 'ws:'
-        const wsHost = apiBase.replace(/^https?:\/\//, '')
-        ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`)
-
-        ws.onopen = () => {
-          console.log('WebSocket connected')
-        }
-
-        ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data)
-            if (message.type === 'new_event') {
-              const newEvent = message.event || message
-              setEvents((prev) => [newEvent, ...prev].slice(0, 50))
-              setCurrentEventId(newEvent.id)
-              setShowNewEventBadge(true)
-              if (newEventTimer) clearTimeout(newEventTimer)
-              const timer = setTimeout(() => {
-                setShowNewEventBadge(false)
-              }, 3000)
-              setNewEventTimer(timer)
-            }
-          } catch (e) {
-            console.error('WebSocket message parse error:', e)
-          }
-        }
-
-        ws.onerror = () => {
-          console.warn('WebSocket error, falling back to polling')
-        }
-
-        ws.onclose = () => {
-          console.warn('WebSocket closed, attempting reconnect in 5s')
-          reconnectTimeout = setTimeout(connectWebSocket, 5000)
-        }
-      } catch (e) {
-        console.error('WebSocket connection failed:', e)
-      }
-    }
-
-    connectWebSocket()
-
     const interval = setInterval(fetchEvents, 30000)
 
     return () => {
       clearInterval(interval)
-      if (reconnectTimeout) clearTimeout(reconnectTimeout)
-      if (ws) ws.close()
     }
   }, [])
 
@@ -198,8 +145,10 @@ export default function HomePage() {
     const timer = setInterval(() => {
       setCurrentEventId((prevId) => {
         const currentIdx = filteredEvents.findIndex(e => e.id === prevId)
+        // currentEventId가 filteredEvents에 없으면 변경하지 않음
+        if (currentIdx < 0) return prevId
         const nextIdx = (currentIdx + 1) % filteredEvents.length
-        return filteredEvents[nextIdx]?.id || filteredEvents[0]?.id || null
+        return filteredEvents[nextIdx]?.id || prevId
       })
     }, SLIDESHOW_INTERVAL)
 
@@ -599,25 +548,7 @@ export default function HomePage() {
                   alignItems: 'center',
                   gap: 6,
                 }}>
-                  {showNewEventBadge ? (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}>
-                      <div style={{
-                        width: 12,
-                        height: 12,
-                        border: '2px solid #00e676',
-                        borderRadius: '50%',
-                        borderTopColor: 'transparent',
-                        animation: 'spin 0.8s linear infinite',
-                      }} />
-                      <span>New Event</span>
-                    </div>
-                  ) : (
-                    'Latest News'
-                  )}
+                  Latest News
                 </div>
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
@@ -717,19 +648,16 @@ export default function HomePage() {
                       <div
                         key={event.id}
                         onClick={() => {
-                          if (event.id !== currentEventId) {
-                            setCurrentEventId(event.id)
-                            setIsPlaying(false)
-                            if (slideshowIntervalRef.current) {
-                              clearInterval(slideshowIntervalRef.current)
-                              slideshowIntervalRef.current = null
-                            }
-                            if (resumeTimer) clearTimeout(resumeTimer)
-                            const timer = setTimeout(() => {
-                              setIsPlaying(true)
-                            }, 20000)
-                            setResumeTimer(timer)
+                          setCurrentEventId(event.id)
+                          setIsPlaying(false)
+                          if (slideshowIntervalRef.current) {
+                            clearInterval(slideshowIntervalRef.current)
+                            slideshowIntervalRef.current = null
                           }
+                          if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+                          resumeTimerRef.current = setTimeout(() => {
+                            setIsPlaying(true)
+                          }, 20000)
                         }}
                         style={{
                           background: event.id === currentEventId ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
