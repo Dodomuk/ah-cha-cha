@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.news import NewsArticle, CountryThreatLevel
-from app.services.rss import fetch_security_news, fetch_all_news
+from app.services.rss import fetch_all_news
 from app.services.summarizer import summarize_batch
 from app.config import settings
 

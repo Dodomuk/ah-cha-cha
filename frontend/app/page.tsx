@@ -2,7 +2,6 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useEffect, useMemo, useRef } from 'react'
-import Link from 'next/link'
 import * as d3 from 'd3'
 
 const WorldMap = dynamic(() => import('@/components/map/WorldMap'), {
@@ -174,11 +173,9 @@ export default function HomePage() {
     return () => {
       clearInterval(interval)
       if (reconnectTimeout) clearTimeout(reconnectTimeout)
-      if (newEventTimer) clearTimeout(newEventTimer)
-      if (resumeTimer) clearTimeout(resumeTimer)
       if (ws) ws.close()
     }
-  }, [newEventTimer, resumeTimer])
+  }, [])
 
   // 날짜 필터링된 이벤트
   const filteredEvents = useMemo(() => {
@@ -266,7 +263,7 @@ export default function HomePage() {
       clearInterval(titleTimer)
       clearInterval(summaryTimer)
     }
-  }, [currentEventId])
+  }, [currentEvent])
 
   const categoryEmoji: Record<string, string> = {
     security: '🔒',
@@ -396,15 +393,6 @@ export default function HomePage() {
             Real-time Global News Intelligence
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <Link href="/legacy" style={{
-            fontSize: 11,
-            color: 'rgba(255,255,255,0.3)',
-            textDecoration: 'none',
-          }}>
-            Security →
-          </Link>
-        </div>
       </header>
 
       {/* 메인: 지도 전체 */}
@@ -423,41 +411,43 @@ export default function HomePage() {
           }}>
             Loading...
           </div>
-        ) : currentEvent ? (
+        ) : events.length > 0 ? (
           <>
-            {/* 세계 지도 (왼쪽으로 이동) */}
-            <div style={{ position: 'absolute', inset: 0, transform: 'translateX(-80px)', pointerEvents: 'none' }}>
-              <WorldMap
-                threatData={Object.fromEntries(
-                  currentEvent.countries.map(code => [
-                    code,
-                    {
-                      threat_level: Math.min(currentEvent.threat_level, 4) as 1 | 2 | 3 | 4,
-                      confirmed: 0,
-                      deaths: 0,
-                      recovered: 0,
-                      article_count: 1,
-                    }
-                  ])
-                )}
-                dateKey={`${currentEventIndex}`}
-              />
-            </div>
+            {/* 세계 지도 + 팝업 (currentEvent가 있을 때만) */}
+            {currentEvent && (
+              <>
+                <div style={{ position: 'absolute', inset: 0, transform: 'translateX(-80px)', pointerEvents: 'none' }}>
+                  <WorldMap
+                    threatData={Object.fromEntries(
+                      currentEvent.countries.map(code => [
+                        code,
+                        {
+                          threat_level: Math.min(currentEvent.threat_level, 4) as 1 | 2 | 3 | 4,
+                          confirmed: 0,
+                          deaths: 0,
+                          recovered: 0,
+                          article_count: 1,
+                        }
+                      ])
+                    )}
+                    dateKey={`${currentEventIndex}`}
+                  />
+                </div>
 
-            {/* 팝업 카드 */}
-            <div style={{
-              position: 'absolute',
-              ...popupPosition,
-              width: 'min(100%, 480px)',
-              background: 'rgba(10, 25, 47, 0.4)',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(0, 230, 118, 0.2)',
-              borderRadius: 12,
-              padding: 20,
-              zIndex: 50,
-              boxShadow: '0 8px 32px rgba(0, 230, 118, 0.05), inset 0 0 20px rgba(0, 230, 118, 0.05)',
-              animation: 'slideDown 0.5s ease-out, borderGlow 3s ease-in-out infinite',
-            } as React.CSSProperties}>
+                {/* 팝업 카드 */}
+                <div style={{
+                  position: 'absolute',
+                  ...popupPosition,
+                  width: 'min(100%, 480px)',
+                  background: 'rgba(10, 25, 47, 0.4)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(0, 230, 118, 0.2)',
+                  borderRadius: 12,
+                  padding: 20,
+                  zIndex: 50,
+                  boxShadow: '0 8px 32px rgba(0, 230, 118, 0.05), inset 0 0 20px rgba(0, 230, 118, 0.05)',
+                  animation: 'slideDown 0.5s ease-out, borderGlow 3s ease-in-out infinite',
+                } as React.CSSProperties}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'start', marginBottom: 12 }}>
                 <span style={{ fontSize: 32 }}>
                   {categoryEmoji[currentEvent.category as keyof typeof categoryEmoji] || '📰'}
@@ -549,6 +539,8 @@ export default function HomePage() {
                 )}
               </div>
             </div>
+              </>
+            )}
 
             {/* 이벤트 리스트 (우상단) */}
             <div style={{
@@ -657,7 +649,19 @@ export default function HomePage() {
               </div>
 
               <div style={{ padding: 8, overflow: 'auto', flex: 1 }}>
-                {filteredEvents.map((event, idx) => {
+                {filteredEvents.length === 0 ? (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    color: 'rgba(0,230,118,0.4)',
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                  }}>
+                    No articles for this date
+                  </div>
+                ) : filteredEvents.map((event, idx) => {
                   const prevDate = idx > 0 ? getDateKey(filteredEvents[idx - 1].collected_at) : ''
                   const curDate = getDateKey(event.collected_at)
                   const showDateHeader = curDate && curDate !== prevDate

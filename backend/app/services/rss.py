@@ -7,16 +7,6 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 RSS_FEEDS = {
-    # 보안/사이버
-    "security": [
-        "https://feeds.feedburner.com/TheHackersNews",
-        "https://www.bleepingcomputer.com/feed/",
-        "https://krebsonsecurity.com/feed/",
-        "https://www.darkreading.com/rss.xml",
-        "https://asec.ahnlab.com/ko/feed/",
-        "http://www.boannews.com/media/news_rss.xml",
-        "https://www.dailysecu.com/rss/allArticle.xml",
-    ],
     # 정치/외교
     "politics": [
         "https://www.bbc.com/news/rss.xml",
@@ -55,9 +45,6 @@ RSS_FEEDS = {
         "http://feeds.cnn.com/rss/edition.rss",
     ],
 }
-
-# 하위 호환성
-SECURITY_RSS_FEEDS = RSS_FEEDS["security"]
 
 # 제목에 아래 키워드 중 하나라도 포함되면 수집 대상
 SECURITY_KEYWORDS = {
@@ -133,17 +120,6 @@ SECURITY_KEYWORDS = {
     "심스와핑", "소액결제 사기", "원격제어앱",
     "페가수스", "앱스토어 악성", "구글플레이 악성",
 }
-
-
-def _is_security_related(title: str) -> bool:
-    lower = title.lower()
-    return any(kw in lower for kw in SECURITY_KEYWORDS)
-
-
-async def fetch_security_news(limit: int = 200) -> list[dict]:
-    """모든 보안 피드를 전량 수집한 뒤 보안 키워드 기준으로 필터링한다."""
-    results = await _fetch_news_by_category("security", limit, filter_func=_is_security_related)
-    return results
 
 
 async def fetch_all_news(limit: int = 300) -> list[dict]:
