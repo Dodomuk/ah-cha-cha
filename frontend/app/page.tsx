@@ -91,6 +91,7 @@ export default function HomePage() {
   const [resumeTimer, setResumeTimer] = useState<NodeJS.Timeout | null>(null)
   const [showNewEventBadge, setShowNewEventBadge] = useState(false)
   const [newEventTimer, setNewEventTimer] = useState<NodeJS.Timeout | null>(null)
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('Today')
   const slideshowIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
@@ -179,8 +180,16 @@ export default function HomePage() {
     }
   }, [newEventTimer, resumeTimer])
 
+  // 날짜 필터링된 이벤트
+  const filteredEvents = useMemo(() => {
+    return events.filter(e => {
+      const dateKey = getDateKey(e.collected_at)
+      return dateKey === selectedDateFilter
+    })
+  }, [events, selectedDateFilter])
+
   useEffect(() => {
-    if (events.length === 0 || !isPlaying) {
+    if (filteredEvents.length === 0 || !isPlaying) {
       if (slideshowIntervalRef.current) {
         clearInterval(slideshowIntervalRef.current)
         slideshowIntervalRef.current = null
@@ -190,9 +199,9 @@ export default function HomePage() {
 
     const timer = setInterval(() => {
       setCurrentEventId((prevId) => {
-        const currentIdx = events.findIndex(e => e.id === prevId)
-        const nextIdx = (currentIdx + 1) % events.length
-        return events[nextIdx]?.id || events[0]?.id || null
+        const currentIdx = filteredEvents.findIndex(e => e.id === prevId)
+        const nextIdx = (currentIdx + 1) % filteredEvents.length
+        return filteredEvents[nextIdx]?.id || filteredEvents[0]?.id || null
       })
     }, SLIDESHOW_INTERVAL)
 
@@ -204,16 +213,15 @@ export default function HomePage() {
         slideshowIntervalRef.current = null
       }
     }
-  }, [events, isPlaying])
+  }, [filteredEvents, isPlaying])
 
-  // currentEventId를 기반으로 currentEventIndex 계산
   const currentEventIndex = useMemo(() => {
-    if (!currentEventId || events.length === 0) return 0
-    const index = events.findIndex(e => e.id === currentEventId)
+    if (!currentEventId || filteredEvents.length === 0) return 0
+    const index = filteredEvents.findIndex(e => e.id === currentEventId)
     return index >= 0 ? index : 0
-  }, [currentEventId, events])
+  }, [currentEventId, filteredEvents])
 
-  const currentEvent = events[currentEventIndex]
+  const currentEvent = filteredEvents[currentEventIndex]
 
   // 단어별 애니메이션 (Word-by-word reveal with chunking)
   useEffect(() => {
@@ -258,7 +266,7 @@ export default function HomePage() {
       clearInterval(titleTimer)
       clearInterval(summaryTimer)
     }
-  }, [currentEventIndex, currentEvent])
+  }, [currentEventId])
 
   const categoryEmoji: Record<string, string> = {
     security: '🔒',
@@ -619,9 +627,38 @@ export default function HomePage() {
                 </button>
               </div>
 
+              {/* 날짜 필터 버튼 */}
+              <div style={{
+                display: 'flex',
+                gap: 6,
+                padding: '8px 12px',
+                borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
+                background: 'rgba(10, 25, 47, 0.7)',
+              }}>
+                {['Today', 'Yesterday', '2 days ago'].map(dateLabel => (
+                  <button
+                    key={dateLabel}
+                    onClick={() => setSelectedDateFilter(dateLabel)}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      border: `1px solid ${selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.3)'}`,
+                      borderRadius: 4,
+                      background: selectedDateFilter === dateLabel ? 'rgba(0, 230, 118, 0.1)' : 'transparent',
+                      color: selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.6)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {dateLabel}
+                  </button>
+                ))}
+              </div>
+
               <div style={{ padding: 8, overflow: 'auto', flex: 1 }}>
-                {events.map((event, idx) => {
-                  const prevDate = idx > 0 ? getDateKey(events[idx - 1].collected_at) : ''
+                {filteredEvents.map((event, idx) => {
+                  const prevDate = idx > 0 ? getDateKey(filteredEvents[idx - 1].collected_at) : ''
                   const curDate = getDateKey(event.collected_at)
                   const showDateHeader = curDate && curDate !== prevDate
 
