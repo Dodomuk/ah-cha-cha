@@ -477,7 +477,7 @@ def translate_to_english(text: str) -> str:
         return text
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        client = anthropic.Anthropic(api_key=settings.claude_api_key)
         message = client.messages.create(
             model="claude-3-5-haiku-20241022",
             max_tokens=1024,
