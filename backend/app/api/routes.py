@@ -545,6 +545,7 @@ def get_events(
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """실시간 뉴스 이벤트 스트리밍."""
+    # WebSocket 연결 수락 (CORS 확인)
     await manager.connect(websocket)
     try:
         while True:
