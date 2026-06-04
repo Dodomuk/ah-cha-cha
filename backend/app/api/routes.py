@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header, WebSocket, WebSocketDisconnect
@@ -12,6 +13,8 @@ from app.models.schemas import (
 )
 from app.config import settings
 import anthropic
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -149,7 +152,7 @@ def get_countries(
         for code in (codes or []):
             victim_set.add(code.upper())
 
-    def get_role(code: str) -> str | None:
+    def get_role(code: str) -> Optional[str]:
         is_a = code in attacker_set
         is_v = code in victim_set
         if is_a and is_v:
@@ -467,8 +470,8 @@ def is_korean(text: str) -> bool:
     return False
 
 
-def translate_to_english(text: str) -> str:
-    """한국어 텍스트를 영어로 번역 (Claude API 사용). 한국어가 없으면 원본 반환."""
+async def translate_to_english_async(text: str) -> str:
+    """한국어 텍스트를 영어로 번역 (Claude API 사용, 비동기). 한국어가 없으면 원본 반환."""
     if not text:
         return text
 
@@ -477,8 +480,11 @@ def translate_to_english(text: str) -> str:
         return text
 
     try:
-        client = anthropic.Anthropic(api_key=settings.claude_api_key)
-        message = client.messages.create(
+        import asyncio
+        await asyncio.sleep(0.5)  # Rate limit 방지
+
+        client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+        message = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[
@@ -489,11 +495,20 @@ def translate_to_english(text: str) -> str:
             ]
         )
         translated = message.content[0].text.strip()
-        print(f"Translated: {text[:50]}... -> {translated[:50]}...")
+        logger.info(f"Translated: {text[:50]}... -> {translated[:50]}...")
         return translated
     except Exception as e:
-        print(f"Translation error: {e}")
+        logger.error(f"Translation error: {e}")
         return text
+
+
+def translate_to_english(text: str) -> str:
+    """동기 번역 함수 (호환성 유지). /api/events에서는 사용하지 않음."""
+    if not text:
+        return text
+    if not is_korean(text):
+        return text
+    return text  # 비동기 버전 사용으로 여기서는 원본 반환
 
 
 @router.get("/events")
@@ -517,13 +532,9 @@ def get_events(
 
     events = []
     for a in articles:
-        # 제목과 요약을 영어로 변환 (저장된 영어 버전이 한국어이면 다시 번역)
-        title = a.summary_title if a.summary_title else ""
-        summary = a.summary_what if a.summary_what else ""
-
-        # 항상 번역 시도 (한국어가 없으면 원본 반환)
-        title_en = translate_to_english(title)
-        summary_en = translate_to_english(summary)
+        # 저장된 영어 버전 우선 사용, 없으면 한국어 사용
+        title_en = a.summary_title_en if a.summary_title_en else (a.summary_title or "")
+        summary_en = a.summary_what_en if a.summary_what_en else (a.summary_what or "")
 
         keywords_text = summary_en + " " + title_en
 
@@ -537,6 +548,7 @@ def get_events(
             "countries": a.country_codes or [],
             "animation_config": a.animation_config,
             "collected_at": a.collected_at.isoformat() if a.collected_at else None,
+            "source_title": a.source_title or "",
         })
 
     return {"events": events}

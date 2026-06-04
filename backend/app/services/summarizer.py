@@ -1,3 +1,4 @@
+from typing import Optional
 import json
 import logging
 import asyncio
@@ -5,6 +6,38 @@ import anthropic
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _is_korean(text: str) -> bool:
+    """텍스트에 한국어가 포함되어 있는지 확인."""
+    if not text:
+        return False
+    for char in text:
+        if ord(char) >= 0xAC00 and ord(char) <= 0xD7A3:  # 한글 범위
+            return True
+    return False
+
+
+async def _translate_to_english(text: str) -> str:
+    """한국어를 영어로 번역 (내부용). 한국어가 없으면 원본 반환."""
+    if not text or not _is_korean(text):
+        return text
+
+    try:
+        await asyncio.sleep(0.5)  # Rate limit 방지
+        client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+        message = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": f"Translate to English, return ONLY the translation:\n\n{text}"
+            }]
+        )
+        return message.content[0].text.strip()
+    except Exception as e:
+        logger.error(f"Translation failed: {e}")
+        return text
 
 
 SYSTEM_PROMPT = """당신은 전 세계 뉴스 분석가입니다.
@@ -76,7 +109,7 @@ def _generate_animation_config(data: dict, category: str) -> dict:
     }
 
 
-async def summarize_article(title: str, category: str = "general", max_retries: int = 3) -> tuple[dict | None, dict]:
+async def summarize_article(title: str, category: str = "general", max_retries: int = 3) -> tuple[Optional[dict], dict]:
     """Returns (result, token_usage). token_usage = {"input": 0, "output": 0} on failure.
 
     Claude Haiku 모델이 한글 생성 시 간헐적으로 U+FFFD(replacement character)를 반환하는
@@ -152,10 +185,17 @@ async def summarize_batch(articles: list[dict], concurrency: int = 2) -> tuple[l
             total_tokens["output"] += usage["output"]
             if result:
                 article.update(result)
+                # 한국어 요약을 영어로 번역
+                article["summary_title_en"] = await _translate_to_english(result.get("summary_title", ""))
+                article["summary_what_en"] = await _translate_to_english(result.get("summary_what", ""))
+                article["summary_impact_en"] = await _translate_to_english(result.get("summary_impact", ""))
                 article["ai_processed"] = True
             else:
                 article["threat_level"] = 0
                 article["country_codes"] = []
+                article["summary_title_en"] = ""
+                article["summary_what_en"] = ""
+                article["summary_impact_en"] = ""
                 article["animation_config"] = json.dumps({"affected_countries": [], "arrows": []})
                 article["ai_processed"] = False
             return article

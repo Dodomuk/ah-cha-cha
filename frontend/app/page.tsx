@@ -18,6 +18,7 @@ interface Event {
   countries: string[]
   animation_config?: string
   collected_at: string
+  source_title?: string
 }
 
 const SLIDESHOW_INTERVAL = 12000
@@ -218,15 +219,25 @@ export default function HomePage() {
     return index >= 0 ? index : 0
   }, [currentEventId, filteredEvents])
 
-  const currentEvent = filteredEvents[currentEventIndex]
+  // filteredEvents가 비어있어도 지도는 계속 표시하기 위해 events에서도 찾기
+  const currentEvent = useMemo(() => {
+    if (!currentEventId) return null
+    // 먼저 filteredEvents에서 찾기
+    if (filteredEvents.length > 0) {
+      return filteredEvents[currentEventIndex]
+    }
+    // filteredEvents가 비어있으면 전체 events에서 찾기
+    return events.find(e => e.id === currentEventId) || null
+  }, [currentEventId, filteredEvents, currentEventIndex, events])
 
   // 단어별 애니메이션 (Word-by-word reveal with chunking)
   useEffect(() => {
     if (!currentEvent) return
 
-    const rawTitleWords = (currentEvent.title || '')
+    const displayTitle = currentEvent.source_title || currentEvent.title || ''
+    const rawTitleWords = displayTitle
       .split(' ')
-      .filter(w => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
+      .filter((w: string) => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
     const rawSummaryWords = (currentEvent.summary || '')
       .split(' ')
       .filter(w => w.trim() && w.trim() !== 'undefined' && w !== 'undefined')
@@ -372,6 +383,14 @@ export default function HomePage() {
           50% {
             opacity: 1;
             filter: drop-shadow(0 0 8px rgba(0, 230, 118, 0.6));
+          }
+        }
+        @keyframes buttonGlow {
+          0%, 100% {
+            box-shadow: 0 0 0px rgba(0, 230, 118, 0.2);
+          }
+          50% {
+            box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
           }
         }
       `}</style>
@@ -622,7 +641,7 @@ export default function HomePage() {
               {/* 날짜 필터 버튼 */}
               <div style={{
                 display: 'flex',
-                gap: 6,
+                gap: 4,
                 padding: '8px 12px',
                 borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
                 background: 'rgba(10, 25, 47, 0.7)',
@@ -632,15 +651,28 @@ export default function HomePage() {
                     key={dateLabel}
                     onClick={() => setSelectedDateFilter(dateLabel)}
                     style={{
-                      padding: '4px 10px',
+                      padding: '5px 12px',
                       fontSize: 10,
                       fontWeight: 600,
-                      border: `1px solid ${selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.3)'}`,
-                      borderRadius: 4,
-                      background: selectedDateFilter === dateLabel ? 'rgba(0, 230, 118, 0.1)' : 'transparent',
-                      color: selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.6)',
+                      border: selectedDateFilter === dateLabel ? '1px solid #00e676' : '1px solid transparent',
+                      borderRadius: 6,
+                      background: selectedDateFilter === dateLabel ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
+                      color: selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.5)',
                       cursor: 'pointer',
-                      transition: 'all 0.2s',
+                      transition: 'all 0.25s ease',
+                      animation: selectedDateFilter === dateLabel ? 'buttonGlow 1.5s ease-in-out infinite' : 'none',
+                    } as React.CSSProperties}
+                    onMouseEnter={(e) => {
+                      if (selectedDateFilter !== dateLabel) {
+                        e.currentTarget.style.background = 'rgba(0, 230, 118, 0.06)'
+                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.8)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedDateFilter !== dateLabel) {
+                        e.currentTarget.style.background = 'transparent'
+                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.5)'
+                      }
                     }}
                   >
                     {dateLabel}
@@ -664,7 +696,7 @@ export default function HomePage() {
                 ) : filteredEvents.map((event, idx) => {
                   const prevDate = idx > 0 ? getDateKey(filteredEvents[idx - 1].collected_at) : ''
                   const curDate = getDateKey(event.collected_at)
-                  const showDateHeader = curDate && curDate !== prevDate
+                  const showDateHeader = idx > 0 && curDate && curDate !== prevDate
 
                   return (
                     <div key={`item-${event.id}`}>

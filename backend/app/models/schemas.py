@@ -1,24 +1,25 @@
 from datetime import datetime
 from uuid import UUID
+from typing import Optional
 from pydantic import BaseModel
 
 
 class NewsArticleOut(BaseModel):
     id: UUID
-    source_title: str | None = None   # 원문 제목 (프론트 중복 그룹화에 사용)
-    summary_title: str | None
-    summary_what: str | None
-    summary_impact: str | None
-    summary_title_en: str | None = None
-    summary_what_en: str | None = None
-    summary_impact_en: str | None = None
+    source_title: Optional[str] = None   # 원문 제목 (프론트 중복 그룹화에 사용)
+    summary_title: Optional[str]
+    summary_what: Optional[str]
+    summary_impact: Optional[str]
+    summary_title_en: Optional[str] = None
+    summary_what_en: Optional[str] = None
+    summary_impact_en: Optional[str] = None
     threat_level: int
     url: str
-    source_domain: str | None
-    published_at: datetime | None
+    source_domain: Optional[str]
+    published_at: Optional[datetime]
     collected_at: datetime
-    attacker_codes: list[str] | None = None
-    victim_codes: list[str] | None = None
+    attacker_codes: Optional[list[str]] = None
+    victim_codes: Optional[list[str]] = None
 
     model_config = {"from_attributes": True}
 
@@ -26,8 +27,8 @@ class NewsArticleOut(BaseModel):
 class CountryThreatOut(BaseModel):
     threat_level: int
     article_count: int
-    delta: int | None = None
-    role: str | None = None
+    delta: Optional[int] = None
+    role: Optional[str] = None
 
 
 class CountriesResponse(BaseModel):
@@ -72,10 +73,10 @@ class MarketSnapshotOut(BaseModel):
     index_name: str
     index_name_ko: str
     ticker: str
-    current_value: float | None
-    prev_close: float | None
-    change_pct: float | None
-    change_abs: float | None
+    current_value: Optional[float]
+    prev_close: Optional[float]
+    change_pct: Optional[float]
+    change_abs: Optional[float]
     is_open: bool
     updated_at: datetime
 
@@ -89,7 +90,7 @@ class MarketsResponse(BaseModel):
 
 class HistoryPoint(BaseModel):
     date: str       # YYYY-MM-DD
-    close: float | None
+    close: Optional[float]
 
 
 class CountryMarketDetail(BaseModel):

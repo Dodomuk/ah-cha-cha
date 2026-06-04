@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import String, Text, SmallInteger, Boolean, ARRAY, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
@@ -13,26 +14,26 @@ class NewsArticle(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    source_title: Mapped[str | None] = mapped_column(Text)
-    source_domain: Mapped[str | None] = mapped_column(String(255))
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_title: Mapped[Optional[str]] = mapped_column(Text)
+    source_domain: Mapped[Optional[str]] = mapped_column(String(255))
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    summary_title: Mapped[str | None] = mapped_column(Text)
-    summary_what: Mapped[str | None] = mapped_column(Text)
-    summary_impact: Mapped[str | None] = mapped_column(Text)
-    summary_title_en: Mapped[str | None] = mapped_column(Text)
-    summary_what_en: Mapped[str | None] = mapped_column(Text)
-    summary_impact_en: Mapped[str | None] = mapped_column(Text)
+    summary_title: Mapped[Optional[str]] = mapped_column(Text)
+    summary_what: Mapped[Optional[str]] = mapped_column(Text)
+    summary_impact: Mapped[Optional[str]] = mapped_column(Text)
+    summary_title_en: Mapped[Optional[str]] = mapped_column(Text)
+    summary_what_en: Mapped[Optional[str]] = mapped_column(Text)
+    summary_impact_en: Mapped[Optional[str]] = mapped_column(Text)
     threat_level: Mapped[int] = mapped_column(SmallInteger, default=0)
-    country_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)))
-    attacker_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)), nullable=True)
-    victim_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)), nullable=True)
+    country_codes: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String(10)))
+    attacker_codes: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String(10)), nullable=True)
+    victim_codes: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String(10)), nullable=True)
 
-    category: Mapped[str | None] = mapped_column(String(50), default="general")
-    animation_config: Mapped[dict | None] = mapped_column(Text)
+    category: Mapped[Optional[str]] = mapped_column(String(50), default="general")
+    animation_config: Mapped[Optional[dict]] = mapped_column(Text)
 
     ai_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
