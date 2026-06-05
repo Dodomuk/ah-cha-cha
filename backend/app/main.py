@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.models.database import engine, Base
 from app.api.routes import router
+from app.api.legacy_routes import router as legacy_router
+from app.api.backtest_routes import router as backtest_router
 from app.api.market_routes import router as market_router
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 import app.models.market  # noqa: F401 — MarketSnapshot/History 테이블 등록
@@ -45,6 +47,8 @@ async def preflight(full_path: str):
     return JSONResponse({"ok": True})
 
 app.include_router(router, prefix="/api")
+app.include_router(legacy_router, prefix="/api")
+app.include_router(backtest_router, prefix="/api")
 app.include_router(market_router, prefix="/api")
 
 

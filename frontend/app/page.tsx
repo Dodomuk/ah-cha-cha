@@ -611,115 +611,30 @@ export default function HomePage() {
                 ))}
               </div>
 
-              <div style={{ padding: 8, overflow: 'auto', flex: 1 }}>
-                {filteredEvents.length === 0 ? (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    color: 'rgba(0,230,118,0.4)',
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                  }}>
-                    No articles for this date
-                  </div>
-                ) : filteredEvents.map((event, idx) => {
-                  const prevDate = idx > 0 ? getDateKey(filteredEvents[idx - 1].collected_at) : ''
-                  const curDate = getDateKey(event.collected_at)
-                  const showDateHeader = idx > 0 && curDate && curDate !== prevDate
-
-                  return (
-                    <div key={`item-${event.id}`}>
-                      {showDateHeader && (
-                        <div style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: 'rgba(0,230,118,0.5)',
-                          paddingLeft: 8,
-                          marginTop: idx === 0 ? 0 : 8,
-                          marginBottom: 4,
-                          textTransform: 'uppercase',
-                          letterSpacing: 1,
-                        }}>
-                          {curDate}
-                        </div>
-                      )}
-                      <div
-                        key={event.id}
-                        onClick={() => {
-                          setCurrentEventId(event.id)
-                          setIsPlaying(false)
-                          if (slideshowIntervalRef.current) {
-                            clearInterval(slideshowIntervalRef.current)
-                            slideshowIntervalRef.current = null
-                          }
-                          if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
-                          resumeTimerRef.current = setTimeout(() => {
-                            setIsPlaying(true)
-                          }, 20000)
-                        }}
-                        style={{
-                          background: event.id === currentEventId ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${event.id === currentEventId ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                          padding: 8,
-                          marginBottom: 6,
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                        }}
-                        onMouseEnter={(e) => {
-                          const el = e.currentTarget as HTMLElement
-                          if (event.id !== currentEventId) {
-                            el.style.background = 'rgba(255,255,255,0.08)'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          const el = e.currentTarget as HTMLElement
-                          if (event.id !== currentEventId) {
-                            el.style.background = 'rgba(255,255,255,0.05)'
-                          }
-                        }}
-                      >
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'start' }}>
-                      <span style={{ fontSize: 12, flexShrink: 0 }}>
-                        {categoryEmoji[event.category as keyof typeof categoryEmoji] || '📰'}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: event.id === currentEventId ? '#00e676' : '#fff',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}>
-                          {event.title}
-                        </div>
-                        <div style={{
-                          fontSize: 9,
-                          color: 'rgba(255,255,255,0.4)',
-                          marginTop: 2,
-                        }}>
-                          {event.countries.join(', ')}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          width: 12,
-                          height: 12,
-                          borderRadius: 3,
-                          background: threatColor(event.threat_level),
-                          flexShrink: 0,
-                          animation: 'pulse 2s ease-in-out infinite',
-                          boxShadow: `0 0 8px ${threatColor(event.threat_level)}`,
-                        }}
-                      />
+              <div style={{ padding: 20, overflow: 'auto', flex: 1 }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                  flexDirection: 'column',
+                  gap: 16,
+                  color: 'rgba(0,230,118,0.4)',
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 32 }}>🔄</div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(0,230,118,0.6)', marginBottom: 8 }}>
+                      News Service Temporarily Suspended
+                    </div>
+                    <div style={{ lineHeight: 1.5 }}>
+                      더 나은 서비스로 돌아오겠습니다<br/>
+                      Coming back with a better service
                     </div>
                   </div>
-                    </div>
-                  )
-                })}
+                </div>
               </div>
             </div>
           </>
