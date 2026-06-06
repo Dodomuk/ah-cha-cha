@@ -8,73 +8,50 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 RSS_FEEDS = {
-    # 정치/외교
-    "politics": [
-        "https://www.bbc.com/news/rss.xml",
-        "https://feeds.reuters.com/politics",
-        "https://www.politico.eu/feed/",
-        "https://apnews.com/hub/politics/feed",
-        "http://feeds.reuters.com/reuters/worldNews",
-        "https://www.washingtonpost.com/politics/?itid=lk_inline_manual_18",
-    ],
-    # 전쟁/분쟁
-    "conflict": [
-        "https://feeds.reuters.com/reuters/worldNews",
-        "https://www.bbc.com/news/world/rss.xml",
-        "https://feeds.bloomberg.com/markets/news.rss",
-        "https://feeds.washingtonpost.com/rss/world",
-    ],
-    # IT/기술
-    "tech": [
+    # AI/머신러닝
+    "ai": [
         "https://news.ycombinator.com/rss",
         "https://www.theverge.com/rss/index.xml",
         "https://feeds.arstechnica.com/arstechnica/index",
         "https://techcrunch.com/feed/",
-        "https://feeds.slashdot.org/Slashdot/slashdot",
         "https://www.wired.com/feed/rss",
+        "https://arxiv.org/list/cs.AI/rss",
+    ],
+    # 빅테크 (Google, Meta, Apple, Amazon, Microsoft)
+    "bigtech": [
         "https://feeds.macrumors.com/MacRumors-Front-Page/",
+        "https://feeds.arstechnica.com/arstechnica/index",
+        "https://www.theverge.com/rss/index.xml",
+        "https://techcrunch.com/feed/",
     ],
-    # 스포츠
-    "sports": [
-        "http://feeds.reuters.com/reuters/sportsNews",
-        "https://www.bbc.com/sport/rss.xml",
-        "https://feeds.espn.com/espn/headlines",
+    # 개발 (프로그래밍, 도구, 라이브러리)
+    "development": [
+        "https://news.ycombinator.com/rss",
+        "https://feeds.arstechnica.com/arstechnica/index",
+        "https://feeds.slashdot.org/Slashdot/slashdot",
+        "https://www.infoq.com/feed/",
+        "https://techcrunch.com/feed/",
     ],
-    # 글로벌 뉴스
-    "general": [
-        "https://www.bbc.com/news/rss.xml",
-        "http://feeds.reuters.com/reuters/worldNews",
-        "https://apnews.com/apf-services/APIFeeds/rss_feed.xml",
-        "http://feeds.cnn.com/rss/edition.rss",
-    ],
-    # 경제/금융
-    "economics": [
-        "https://feeds.ft.com/?format=rss",
-        "https://feeds.marketwatch.com/marketwatch/topstories/",
-        "https://feeds.cnbc.com/cnbc/index.html",
-        "https://feeds.reuters.com/reuters/businessNews",
+    # 스타트업 (창업, 펀딩, 인수합병)
+    "startup": [
+        "https://techcrunch.com/feed/",
+        "https://news.ycombinator.com/rss",
         "https://feeds.bloomberg.com/markets/news.rss",
+        "https://www.theverge.com/rss/index.xml",
     ],
-    # 의료/바이오
-    "healthcare": [
-        "https://www.statnews.com/feed/",
-        "https://connect.medrxiv.org/rss/new",
-    ],
-    # 환경/에너지
-    "environment": [
-        "https://feeds.pv-magazine.com/feed",
-        "https://www.renewableenergynews.com/feed/",
-    ],
-    # 엔터테인먼트
-    "entertainment": [
-        "https://variety.com/feed/",
-        "https://www.hollywoodreporter.com/feed/",
+    # 보안 (사이버보안, 개인정보)
+    "security": [
+        "https://feeds.arstechnica.com/arstechnica/index",
+        "https://feeds.slashdot.org/Slashdot/slashdot",
+        "https://www.darkreading.com/feeds/",
+        "https://www.wired.com/feed/rss",
+        "https://krebsonsecurity.com/feed/",
     ],
 }
 
 
 async def fetch_all_news(limit: int = 300) -> list[dict]:
-    """모든 카테고리의 뉴스를 수집한다 (필터링 없음)."""
+    """IT 관련 뉴스만 수집한다 (AI, 빅테크, 개발, 스타트업, 보안)."""
     results = []
 
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:

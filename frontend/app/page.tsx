@@ -89,6 +89,7 @@ export default function HomePage() {
   const [displayedSummaryWords, setDisplayedSummaryWords] = useState<string[]>([])
   const [isPlaying, setIsPlaying] = useState(true)
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('Today')
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all')
   const slideshowIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -125,13 +126,15 @@ export default function HomePage() {
     }
   }, [])
 
-  // 날짜 필터링된 이벤트
+  // 날짜 + 카테고리 필터링된 이벤트
   const filteredEvents = useMemo(() => {
     return events.filter(e => {
       const dateKey = getDateKey(e.collected_at)
-      return dateKey === selectedDateFilter
+      const dateMatch = dateKey === selectedDateFilter
+      const categoryMatch = selectedCategoryFilter === 'all' || e.category === selectedCategoryFilter
+      return dateMatch && categoryMatch
     })
-  }, [events, selectedDateFilter])
+  }, [events, selectedDateFilter, selectedCategoryFilter])
 
   useEffect(() => {
     if (filteredEvents.length === 0 || !isPlaying) {
@@ -567,6 +570,49 @@ export default function HomePage() {
                 >
                   {isPlaying ? '⏸' : '▶'}
                 </button>
+              </div>
+
+              {/* 카테고리 필터 버튼 */}
+              <div style={{
+                display: 'flex',
+                gap: 4,
+                padding: '8px 12px',
+                borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
+                background: 'rgba(10, 25, 47, 0.7)',
+                overflow: 'auto',
+              }}>
+                {[{ label: 'All', value: 'all' }, { label: 'AI', value: 'ai' }, { label: 'BigTech', value: 'bigtech' }, { label: 'Dev', value: 'development' }, { label: 'Startup', value: 'startup' }, { label: 'Security', value: 'security' }].map(cat => (
+                  <button
+                    key={cat.value}
+                    onClick={() => setSelectedCategoryFilter(cat.value)}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      border: selectedCategoryFilter === cat.value ? '1px solid #00e676' : '1px solid transparent',
+                      borderRadius: 6,
+                      background: selectedCategoryFilter === cat.value ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
+                      color: selectedCategoryFilter === cat.value ? '#00e676' : 'rgba(0, 230, 118, 0.5)',
+                      cursor: 'pointer',
+                      transition: 'all 0.25s ease',
+                      whiteSpace: 'nowrap',
+                    } as React.CSSProperties}
+                    onMouseEnter={(e) => {
+                      if (selectedCategoryFilter !== cat.value) {
+                        e.currentTarget.style.background = 'rgba(0, 230, 118, 0.06)'
+                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.8)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedCategoryFilter !== cat.value) {
+                        e.currentTarget.style.background = 'transparent'
+                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.5)'
+                      }
+                    }}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
               </div>
 
               {/* 날짜 필터 버튼 */}

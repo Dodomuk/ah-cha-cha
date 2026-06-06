@@ -63,6 +63,16 @@ async def legacy_news_collection_job() -> None:
 
 
 def start_scheduler() -> None:
+    # IT 뉴스 수집 (3시간마다)
+    scheduler.add_job(
+        collection_job,
+        CronTrigger(hour="*/3", minute="0", timezone="Asia/Seoul"),
+        id="it_news_collection",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+    logger.info("[Scheduler] IT news collection job scheduled (every 3 hours)")
+
     scheduler.start()
     logger.info("Scheduler started")
 
