@@ -87,7 +87,9 @@ export default function BacktesterPage() {
   useEffect(() => {
     const fetchStocks = async () => {
       try {
-        const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/api/backtest/stocks?limit=100`)
+        const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://ah-cha-cha.onrender.com' : 'http://localhost:8000')
+        const res = await axios.get(`${apiBase}/api/backtest/stocks?limit=100`)
         setStocks(res.data.stocks)
         if (res.data.stocks.length > 0) {
           setSelectedSymbol(res.data.stocks[0].symbol)
@@ -122,8 +124,10 @@ export default function BacktesterPage() {
         initial_cash: 1_000_000,
       }
 
+      const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://ah-cha-cha.onrender.com' : 'http://localhost:8000')
       const res = await axios.post(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/backtest/run`,
+        `${apiBase}/api/backtest/run`,
         payload
       )
 
@@ -146,7 +150,9 @@ export default function BacktesterPage() {
     }
 
     try {
-      await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/backtest/strategies/save`, {
+      const isProduction = typeof window !== 'undefined' && window.location.hostname === 'ahchacha.com'
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || (isProduction ? 'https://ah-cha-cha.onrender.com' : 'http://localhost:8000')
+      await axios.post(`${apiBase}/api/backtest/strategies/save`, {
         name: strategyName,
         symbol: result.symbol,
         start_date: format(startDate, 'yyyy-MM-dd'),
