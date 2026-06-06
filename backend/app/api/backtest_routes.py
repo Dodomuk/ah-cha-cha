@@ -513,3 +513,176 @@ def like_strategy(
         db.rollback()
         logger.error(f"Failed to like strategy: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============ 종목 스크리너 ============
+
+class ScreeningRequest(BaseModel):
+    """스크리닝 요청"""
+    conditions: list[ConditionInput]
+
+
+class ScreeningResultItem(BaseModel):
+    """스크리닝 결과 종목"""
+    symbol: str
+    name_ko: str
+    sector: Optional[str]
+    market: str
+    price: float
+    change_pct: float
+    volume: int
+
+
+class ScreeningResponse(BaseModel):
+    """스크리닝 응답"""
+    date: str
+    total_count: int
+    results: list[ScreeningResultItem]
+    error: Optional[str] = None
+
+
+@router.post("/screen", response_model=ScreeningResponse)
+def screen_stocks(
+    request: ScreeningRequest,
+    db: Session = Depends(get_db),
+) -> ScreeningResponse:
+    """
+    오늘 조건을 만족하는 종목 스크리닝
+
+    Example:
+    ```json
+    {
+      "conditions": [
+        {
+          "type": "ma_cross_above",
+          "short_window": 5,
+          "long_window": 20
+        },
+        {
+          "type": "rsi_below",
+          "level": 30
+        }
+      ]
+    }
+    ```
+    """
+    try:
+        from app.services.backtester import Backtester
+        from datetime import datetime, timedelta
+        import yfinance as yf
+
+        # 모든 종목 조회
+        all_stocks = db.execute(select(StockMetadata)).scalars().all()
+
+        if not all_stocks:
+            return ScreeningResponse(
+                date=datetime.now().strftime('%Y-%m-%d'),
+                total_count=0,
+                results=[],
+                error="No stocks in database"
+            )
+
+        screening_results = []
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        for stock in all_stocks:
+            try:
+                # yfinance로 최신 데이터 조회 (최근 100일)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=100)
+
+                df = yf.download(
+                    stock.symbol,
+                    start=start_date.strftime('%Y-%m-%d'),
+                    end=end_date.strftime('%Y-%m-%d'),
+                    progress=False
+                )
+
+                if df.empty or len(df) < 20:
+                    continue
+
+                # 조건 확인
+                all_conditions_met = True
+
+                for condition in request.conditions:
+                    condition_met = False
+
+                    # MA 크로스
+                    if condition.type == "ma_cross_above":
+                        short_ma = df['Close'].tail(condition.short_window or 5).mean()
+                        long_ma = df['Close'].tail(condition.long_window or 20).mean()
+                        condition_met = short_ma > long_ma
+
+                    elif condition.type == "ma_cross_below":
+                        short_ma = df['Close'].tail(condition.short_window or 5).mean()
+                        long_ma = df['Close'].tail(condition.long_window or 20).mean()
+                        condition_met = short_ma < long_ma
+
+                    # RSI
+                    elif condition.type in ["rsi_below", "rsi_above"]:
+                        period = condition.period or 14
+                        delta = df['Close'].diff()
+                        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+                        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+                        rs = gain / loss
+                        rsi = 100 - (100 / (1 + rs))
+                        current_rsi = rsi.iloc[-1]
+
+                        if condition.type == "rsi_below":
+                            condition_met = current_rsi < (condition.level or 30)
+                        else:  # rsi_above
+                            condition_met = current_rsi > (condition.level or 70)
+
+                    # Stochastic
+                    elif condition.type in ["stochastic_oversold", "stochastic_overbought"]:
+                        period = condition.period or 14
+                        low_min = df['Low'].rolling(window=period).min()
+                        high_max = df['High'].rolling(window=period).max()
+                        k = 100 * (df['Close'] - low_min) / (high_max - low_min)
+
+                        if condition.type == "stochastic_oversold":
+                            condition_met = k.iloc[-1] < (condition.level or 20)
+                        else:  # stochastic_overbought
+                            condition_met = k.iloc[-1] > (condition.level or 80)
+
+                    if not condition_met:
+                        all_conditions_met = False
+                        break
+
+                # 모든 조건 만족 시 결과에 추가
+                if all_conditions_met:
+                    latest_price = df['Close'].iloc[-1]
+                    prev_price = df['Close'].iloc[-2] if len(df) > 1 else latest_price
+                    change_pct = round(((latest_price - prev_price) / prev_price * 100), 2)
+                    volume = int(df['Volume'].iloc[-1])
+
+                    screening_results.append(
+                        ScreeningResultItem(
+                            symbol=stock.symbol,
+                            name_ko=stock.name_ko,
+                            sector=stock.sector,
+                            market=stock.market,
+                            price=round(latest_price, 2),
+                            change_pct=change_pct,
+                            volume=volume
+                        )
+                    )
+
+            except Exception as e:
+                logger.warning(f"Failed to screen {stock.symbol}: {str(e)}")
+                continue
+
+        return ScreeningResponse(
+            date=today,
+            total_count=len(screening_results),
+            results=screening_results
+        )
+
+    except Exception as e:
+        logger.error(f"Screening failed: {e}", exc_info=True)
+        return ScreeningResponse(
+            date=datetime.now().strftime('%Y-%m-%d'),
+            total_count=0,
+            results=[],
+            error=str(e)
+        )
