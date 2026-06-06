@@ -554,6 +554,18 @@ def get_events(
     return {"events": events}
 
 
+@router.get("/internal/collect-news")
+async def internal_collect_news(db: Session = Depends(get_db)):
+    """내부용: 수동으로 뉴스를 수집합니다 (개발/테스트용)."""
+    from app.services.collector import run_collection_cycle
+    try:
+        count = await run_collection_cycle(db)
+        return {"success": True, "collected": count}
+    except Exception as e:
+        logger.error(f"Manual collection failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """실시간 뉴스 이벤트 스트리밍."""

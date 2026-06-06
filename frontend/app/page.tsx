@@ -581,7 +581,7 @@ export default function HomePage() {
                 background: 'rgba(10, 25, 47, 0.7)',
                 overflow: 'auto',
               }}>
-                {[{ label: 'All', value: 'all' }, { label: 'AI', value: 'ai' }, { label: 'BigTech', value: 'bigtech' }, { label: 'Dev', value: 'development' }, { label: 'Startup', value: 'startup' }, { label: 'Security', value: 'security' }].map(cat => (
+                {[{ label: 'All', value: 'all' }, { label: 'Tech', value: 'tech' }, { label: 'AI', value: 'ai' }, { label: 'BigTech', value: 'bigtech' }, { label: 'Dev', value: 'development' }, { label: 'Startup', value: 'startup' }, { label: 'Security', value: 'security' }].map(cat => (
                   <button
                     key={cat.value}
                     onClick={() => setSelectedCategoryFilter(cat.value)}
