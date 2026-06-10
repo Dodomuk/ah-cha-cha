@@ -8,6 +8,7 @@ from app.models.database import SessionLocal
 from app.services.collector import run_collection_cycle
 from app.services.market_fetcher import fetch_all_markets
 from app.services.stock_fetcher import prefetch_all_movers
+from app.services.job_trend_collector import collect_weekly_job_trends
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,23 @@ async def movers_prefetch_job() -> None:
         db.close()
 
 
+async def job_trend_collection_job() -> None:
+    """
+    채용 시장 주간 트렌드 수집
+    매주 월요일 09:00 (한국시간) 실행
+    """
+    now = datetime.now(timezone.utc)
+    logger.info(f"[Scheduler] Job trend collection started at {now.isoformat()}")
+    db = SessionLocal()
+    try:
+        result = await collect_weekly_job_trends(db)
+        logger.info(f"[Scheduler] Job trend collection completed: {result}")
+    except Exception as e:
+        logger.error(f"[Scheduler] Job trend collection failed: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
 async def legacy_news_collection_job() -> None:
     """
     기존 보안 뉴스 수집 (비활성화)
@@ -63,15 +81,26 @@ async def legacy_news_collection_job() -> None:
 
 
 def start_scheduler() -> None:
-    # IT 뉴스 수집 (3시간마다)
+    # IT 뉴스 수집 (비활성화 - Claude API 비용 절감)
+    # 필요시 /api/internal/collect-news 엔드포인트로 수동 실행
+    # scheduler.add_job(
+    #     collection_job,
+    #     CronTrigger(hour="*/3", minute="0", timezone="Asia/Seoul"),
+    #     id="it_news_collection",
+    #     replace_existing=True,
+    #     misfire_grace_time=60,
+    # )
+    # logger.info("[Scheduler] IT news collection job scheduled (every 3 hours)")
+
+    # 채용 시장 트렌드 수집 (매주 월요일 09:00)
     scheduler.add_job(
-        collection_job,
-        CronTrigger(hour="*/3", minute="0", timezone="Asia/Seoul"),
-        id="it_news_collection",
+        job_trend_collection_job,
+        CronTrigger(day_of_week="0", hour="9", minute="0", timezone="Asia/Seoul"),
+        id="job_trend_collection",
         replace_existing=True,
         misfire_grace_time=60,
     )
-    logger.info("[Scheduler] IT news collection job scheduled (every 3 hours)")
+    logger.info("[Scheduler] Job trend collection scheduled (every Monday 09:00 KST)")
 
     scheduler.start()
     logger.info("Scheduler started")

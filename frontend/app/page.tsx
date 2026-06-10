@@ -21,6 +21,17 @@ interface Event {
   source_title?: string
 }
 
+interface JobTrendSummary {
+  week_date: string
+  total_postings: number
+  categories: Array<{
+    category: string
+    posting_count: number
+    change_pct: number | null
+  }>
+  top_keywords: string[]
+}
+
 const SLIDESHOW_INTERVAL = 12000
 
 function getRelativeTime(dateString: string): string {
@@ -90,6 +101,9 @@ export default function HomePage() {
   const [isPlaying, setIsPlaying] = useState(true)
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('Today')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all')
+  const [jobSummary, setJobSummary] = useState<JobTrendSummary | null>(null)
+  const [jobLoading, setJobLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'news' | 'jobs'>('news')
   const slideshowIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -117,12 +131,31 @@ export default function HomePage() {
       }
     }
 
-    fetchEvents()
+    const fetchJobSummary = async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/jobs/trends/weekly`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.success) {
+            setJobSummary(data.data)
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch job summary:', e)
+      } finally {
+        setJobLoading(false)
+      }
+    }
 
-    const interval = setInterval(fetchEvents, 30000)
+    fetchEvents()
+    fetchJobSummary()
+
+    const eventInterval = setInterval(fetchEvents, 30000)
+    const jobInterval = setInterval(fetchJobSummary, 60000)
 
     return () => {
-      clearInterval(interval)
+      clearInterval(eventInterval)
+      clearInterval(jobInterval)
     }
   }, [])
 
@@ -364,6 +397,21 @@ export default function HomePage() {
             Real-time Global News Intelligence
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <a href="/jobs" style={{
+            padding: '8px 16px',
+            fontSize: 12,
+            border: '1px solid rgba(0, 230, 118, 0.3)',
+            borderRadius: 6,
+            color: 'rgba(0, 230, 118, 0.8)',
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            background: 'rgba(0, 230, 118, 0.05)',
+          }}>
+            📊 Job Trends
+          </a>
+        </div>
       </header>
 
       {/* 메인: 지도 전체 */}
@@ -543,144 +591,273 @@ export default function HomePage() {
                 alignItems: 'center',
                 borderRadius: '12px 12px 0 0',
               }}>
-                <div style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: '#00e676',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}>
-                  Latest News
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => setActiveTab('news')}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: activeTab === 'news' ? '#00e676' : 'rgba(0, 230, 118, 0.4)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px 0',
+                      borderBottom: activeTab === 'news' ? '2px solid #00e676' : 'none',
+                    }}
+                  >
+                    Latest News
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('jobs')}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: activeTab === 'jobs' ? '#00e676' : 'rgba(0, 230, 118, 0.4)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px 0',
+                      borderBottom: activeTab === 'jobs' ? '2px solid #00e676' : 'none',
+                    }}
+                  >
+                    Job Trends
+                  </button>
                 </div>
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#00e676',
-                    fontSize: 16,
-                    cursor: 'pointer',
-                    padding: '4px',
+                {activeTab === 'news' && (
+                  <button
+                    onClick={() => setIsPlaying(!isPlaying)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#00e676',
+                      fontSize: 16,
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title={isPlaying ? 'Pause' : 'Play'}
+                  >
+                    {isPlaying ? '⏸' : '▶'}
+                  </button>
+                )}
+              </div>
+
+              {/* News 탭 필터 */}
+              {activeTab === 'news' && (
+                <>
+                  <div style={{
+                    display: 'flex',
+                    gap: 4,
+                    padding: '8px 12px',
+                    borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
+                    background: 'rgba(10, 25, 47, 0.7)',
+                    overflow: 'auto',
+                  }}>
+                    {[{ label: 'All', value: 'all' }, { label: 'Tech', value: 'tech' }, { label: 'AI', value: 'ai' }, { label: 'BigTech', value: 'bigtech' }, { label: 'Dev', value: 'development' }, { label: 'Startup', value: 'startup' }, { label: 'Security', value: 'security' }].map(cat => (
+                      <button
+                        key={cat.value}
+                        onClick={() => setSelectedCategoryFilter(cat.value)}
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          border: selectedCategoryFilter === cat.value ? '1px solid #00e676' : '1px solid transparent',
+                          borderRadius: 6,
+                          background: selectedCategoryFilter === cat.value ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
+                          color: selectedCategoryFilter === cat.value ? '#00e676' : 'rgba(0, 230, 118, 0.5)',
+                          cursor: 'pointer',
+                          transition: 'all 0.25s ease',
+                          whiteSpace: 'nowrap',
+                        } as React.CSSProperties}
+                        onMouseEnter={(e) => {
+                          if (selectedCategoryFilter !== cat.value) {
+                            e.currentTarget.style.background = 'rgba(0, 230, 118, 0.06)'
+                            e.currentTarget.style.color = 'rgba(0, 230, 118, 0.8)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedCategoryFilter !== cat.value) {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = 'rgba(0, 230, 118, 0.5)'
+                          }
+                        }}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    gap: 4,
+                    padding: '8px 12px',
+                    borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
+                    background: 'rgba(10, 25, 47, 0.7)',
+                  }}>
+                    {['Today', 'Yesterday', '2 days ago'].map(dateLabel => (
+                      <button
+                        key={dateLabel}
+                        onClick={() => setSelectedDateFilter(dateLabel)}
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          border: selectedDateFilter === dateLabel ? '1px solid #00e676' : '1px solid transparent',
+                          borderRadius: 6,
+                          background: selectedDateFilter === dateLabel ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
+                          color: selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.5)',
+                          cursor: 'pointer',
+                          transition: 'all 0.25s ease',
+                          animation: selectedDateFilter === dateLabel ? 'buttonGlow 1.5s ease-in-out infinite' : 'none',
+                        } as React.CSSProperties}
+                        onMouseEnter={(e) => {
+                          if (selectedDateFilter !== dateLabel) {
+                            e.currentTarget.style.background = 'rgba(0, 230, 118, 0.06)'
+                            e.currentTarget.style.color = 'rgba(0, 230, 118, 0.8)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedDateFilter !== dateLabel) {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = 'rgba(0, 230, 118, 0.5)'
+                          }
+                        }}
+                      >
+                        {dateLabel}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div style={{ padding: 20, overflow: 'auto', flex: 1 }}>
+                {activeTab === 'news' ? (
+                  <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                  }}
-                  title={isPlaying ? 'Pause' : 'Play'}
-                >
-                  {isPlaying ? '⏸' : '▶'}
-                </button>
-              </div>
-
-              {/* 카테고리 필터 버튼 */}
-              <div style={{
-                display: 'flex',
-                gap: 4,
-                padding: '8px 12px',
-                borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
-                background: 'rgba(10, 25, 47, 0.7)',
-                overflow: 'auto',
-              }}>
-                {[{ label: 'All', value: 'all' }, { label: 'Tech', value: 'tech' }, { label: 'AI', value: 'ai' }, { label: 'BigTech', value: 'bigtech' }, { label: 'Dev', value: 'development' }, { label: 'Startup', value: 'startup' }, { label: 'Security', value: 'security' }].map(cat => (
-                  <button
-                    key={cat.value}
-                    onClick={() => setSelectedCategoryFilter(cat.value)}
-                    style={{
-                      padding: '5px 12px',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      border: selectedCategoryFilter === cat.value ? '1px solid #00e676' : '1px solid transparent',
-                      borderRadius: 6,
-                      background: selectedCategoryFilter === cat.value ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
-                      color: selectedCategoryFilter === cat.value ? '#00e676' : 'rgba(0, 230, 118, 0.5)',
-                      cursor: 'pointer',
-                      transition: 'all 0.25s ease',
-                      whiteSpace: 'nowrap',
-                    } as React.CSSProperties}
-                    onMouseEnter={(e) => {
-                      if (selectedCategoryFilter !== cat.value) {
-                        e.currentTarget.style.background = 'rgba(0, 230, 118, 0.06)'
-                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.8)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedCategoryFilter !== cat.value) {
-                        e.currentTarget.style.background = 'transparent'
-                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.5)'
-                      }
-                    }}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* 날짜 필터 버튼 */}
-              <div style={{
-                display: 'flex',
-                gap: 4,
-                padding: '8px 12px',
-                borderBottom: '1px solid rgba(0, 230, 118, 0.1)',
-                background: 'rgba(10, 25, 47, 0.7)',
-              }}>
-                {['Today', 'Yesterday', '2 days ago'].map(dateLabel => (
-                  <button
-                    key={dateLabel}
-                    onClick={() => setSelectedDateFilter(dateLabel)}
-                    style={{
-                      padding: '5px 12px',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      border: selectedDateFilter === dateLabel ? '1px solid #00e676' : '1px solid transparent',
-                      borderRadius: 6,
-                      background: selectedDateFilter === dateLabel ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
-                      color: selectedDateFilter === dateLabel ? '#00e676' : 'rgba(0, 230, 118, 0.5)',
-                      cursor: 'pointer',
-                      transition: 'all 0.25s ease',
-                      animation: selectedDateFilter === dateLabel ? 'buttonGlow 1.5s ease-in-out infinite' : 'none',
-                    } as React.CSSProperties}
-                    onMouseEnter={(e) => {
-                      if (selectedDateFilter !== dateLabel) {
-                        e.currentTarget.style.background = 'rgba(0, 230, 118, 0.06)'
-                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.8)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedDateFilter !== dateLabel) {
-                        e.currentTarget.style.background = 'transparent'
-                        e.currentTarget.style.color = 'rgba(0, 230, 118, 0.5)'
-                      }
-                    }}
-                  >
-                    {dateLabel}
-                  </button>
-                ))}
-              </div>
-
-              <div style={{ padding: 20, overflow: 'auto', flex: 1 }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '100%',
-                  flexDirection: 'column',
-                  gap: 16,
-                  color: 'rgba(0,230,118,0.4)',
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  textAlign: 'center',
-                }}>
-                  <div style={{ fontSize: 32 }}>🔄</div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(0,230,118,0.6)', marginBottom: 8 }}>
-                      News Service Temporarily Suspended
-                    </div>
-                    <div style={{ lineHeight: 1.5 }}>
-                      더 나은 서비스로 돌아오겠습니다<br/>
-                      Coming back with a better service
+                    height: '100%',
+                    flexDirection: 'column',
+                    gap: 16,
+                    color: 'rgba(0,230,118,0.4)',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 32 }}>🔄</div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(0,230,118,0.6)', marginBottom: 8 }}>
+                        News Service Temporarily Suspended
+                      </div>
+                      <div style={{ lineHeight: 1.5 }}>
+                        더 나은 서비스로 돌아오겠습니다<br/>
+                        Coming back with a better service
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : jobLoading ? (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    color: '#00e676',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                  }}>
+                    Loading...
+                  </div>
+                ) : jobSummary ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
+                        Total Job Postings
+                      </div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#00e676' }}>
+                        {jobSummary.total_postings.toLocaleString()}
+                      </div>
+                    </div>
+
+                    {jobSummary.categories.map(cat => (
+                      <div key={cat.category}>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 2 }}>
+                          {cat.category.toUpperCase()}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
+                            {cat.posting_count}
+                          </div>
+                          {cat.change_pct !== null && (
+                            <div style={{
+                              fontSize: 11,
+                              color: cat.change_pct >= 0 ? '#4caf50' : '#ff5252',
+                              fontWeight: 600,
+                            }}>
+                              {cat.change_pct >= 0 ? '📈' : '📉'} {cat.change_pct > 0 ? '+' : ''}{cat.change_pct.toFixed(1)}%
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    <div style={{ borderTop: '1px solid rgba(0,230,118,0.1)', paddingTop: 12 }}>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>
+                        Trending Keywords
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {jobSummary.top_keywords.slice(0, 5).map((kw, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              fontSize: 9,
+                              padding: '3px 8px',
+                              background: 'rgba(0, 230, 118, 0.1)',
+                              border: '1px solid rgba(0, 230, 118, 0.2)',
+                              borderRadius: 4,
+                              color: '#00e676',
+                            }}
+                          >
+                            {kw}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <a
+                      href="/jobs"
+                      style={{
+                        marginTop: 8,
+                        padding: '8px 12px',
+                        fontSize: 11,
+                        background: 'rgba(0, 230, 118, 0.12)',
+                        border: '1px solid rgba(0, 230, 118, 0.3)',
+                        borderRadius: 6,
+                        color: '#00e676',
+                        textDecoration: 'none',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      View Full Dashboard →
+                    </a>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    color: 'rgba(255,255,255,0.3)',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    textAlign: 'center',
+                  }}>
+                    No job data available
+                  </div>
+                )}
               </div>
             </div>
           </>

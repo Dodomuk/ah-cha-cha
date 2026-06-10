@@ -7,8 +7,10 @@ from app.models.database import engine, Base
 from app.api.routes import router
 from app.api.legacy_routes import router as legacy_router
 from app.api.market_routes import router as market_router
+from app.api.job_routes import router as job_router
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 import app.models.market  # noqa: F401 — MarketSnapshot/History 테이블 등록
+import app.models.job_market  # noqa: F401 — JobTrend/JobKeyword 테이블 등록
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,6 +50,7 @@ async def preflight(full_path: str):
 app.include_router(router, prefix="/api")
 app.include_router(legacy_router, prefix="/api")
 app.include_router(market_router, prefix="/api")
+app.include_router(job_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
