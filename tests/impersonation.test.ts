@@ -8,7 +8,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { BRANDS } from "../lib/scanner/brands.ts";
 import {
+  capConfidence,
   detectImpersonation,
   foldHomoglyphs,
   levenshtein,
@@ -135,4 +137,34 @@ test("글자를 실제로 바꾼 경우는 여전히 고신뢰로 잡는다", ()
   assert.ok(folded);
   assert.equal(folded.confidence, "high");
   assert.equal(folded.kind, "homoglyph");
+});
+
+test("확인되지 않은 브랜드는 danger 까지 올리지 않는다", () => {
+  // 화이트리스트에 오타가 있으면 그 오타 도메인이 "정식"이 되고,
+  // 진짜 사이트가 사칭으로 잡혀 danger 가 뜬다. 오탐 중 최악이다.
+  // 확인 전 브랜드는 caution 까지만 가게 막는다.
+  const unverified = {
+    name: "테스트은행",
+    category: "bank" as const,
+    domains: ["testbank-example.com"],
+    verified: false,
+  };
+  BRANDS.push(unverified);
+  try {
+    // 모듈 로드 시점에 후보 목록이 굳으므로, 여기서는 상한 로직만 직접 검증한다
+    const capped = capConfidence({ confidence: "high", verified: false });
+    assert.equal(capped.confidence, "medium");
+    assert.equal(capped.cappedByVerification, true);
+
+    const kept = capConfidence({ confidence: "high", verified: true });
+    assert.equal(kept.confidence, "high");
+    assert.equal(kept.cappedByVerification, undefined);
+  } finally {
+    BRANDS.pop();
+  }
+});
+
+test("확인된 브랜드 53개는 모두 verified 다", () => {
+  const unverified = BRANDS.filter((b) => !b.verified).map((b) => b.name);
+  assert.deepEqual(unverified, [], `확인 안 된 브랜드: ${unverified.join(", ")}`);
 });

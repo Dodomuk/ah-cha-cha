@@ -33,6 +33,10 @@ export interface ImpersonationFinding {
   officialDomain: string;
   kind: ImpersonationKind;
   confidence: "high" | "medium" | "low";
+  /** 이 브랜드의 정식 도메인을 사람이 확인했는가 */
+  verified: boolean;
+  /** 확인되지 않은 브랜드라서 신뢰도를 낮췄는가 */
+  cappedByVerification?: boolean;
   /** 사용자에게 그대로 노출되는 한국어 설명 */
   detail: string;
 }
@@ -125,6 +129,18 @@ const CANDIDATES: Candidate[] = BRANDS.flatMap((brand) =>
 const RANK = { high: 0, medium: 1, low: 2 } as const;
 
 /**
+ * 확인되지 않은 브랜드의 고신뢰 판정을 한 단계 낮춘다.
+ * 테스트에서 직접 호출할 수 있도록 내보낸다.
+ */
+export function capConfidence<
+  T extends { confidence: "high" | "medium" | "low"; verified: boolean },
+>(finding: T): T & { cappedByVerification?: boolean } {
+  return finding.confidence === "high" && !finding.verified
+    ? { ...finding, confidence: "medium" as const, cappedByVerification: true }
+    : finding;
+}
+
+/**
  * 사칭 정황을 찾는다. 가장 신뢰도 높은 것 하나만 반환한다.
  * 정식 도메인이면 null.
  */
@@ -161,6 +177,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
         officialDomain,
         kind: "subdomain",
         confidence: "high",
+        verified: brand.verified,
         // 원본 도메인을 그대로 쓰지 않는다. 사용자가 옮겨 적을 수 있다 (CLAUDE.md 10)
         detail: `주소 앞부분에 ${josa(brand.name, "이/가")} 붙어 있지만, 실제 사이트 주인은 ${maskDomain(registrable)} 입니다.`,
       });
@@ -183,6 +200,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
           officialDomain,
           kind: "other_tld",
           confidence: "low",
+          verified: brand.verified,
           detail: `${brand.name}와 이름은 같지만 주소 뒷부분이 달라요 (진짜는 ${officialDomain}). ${brand.name}가 직접 쓰는 주소일 수도 있어요.`,
         });
         continue;
@@ -198,6 +216,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
           officialDomain,
           kind: "homoglyph",
           confidence: "high",
+          verified: brand.verified,
           detail: `${brand.name}의 진짜 주소(${officialDomain})와 눈으로는 구별되지 않게 글자를 바꿔놓았습니다.`,
         });
         continue;
@@ -212,6 +231,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
           officialDomain,
           kind: "lookalike",
           confidence: distance <= 1 ? "high" : "medium",
+          verified: brand.verified,
           detail: `${brand.name}의 진짜 주소(${officialDomain})와 ${distance}글자만 다릅니다.`,
         });
         continue;
@@ -225,6 +245,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
           officialDomain,
           kind: "path_only",
           confidence: "low",
+          verified: brand.verified,
           detail: `주소 뒷부분에 ${josa(brand.name, "이/가")} 적혀 있지만, 사이트 주소 자체는 ${josa(brand.name, "와/과")} 무관합니다.`,
         });
       }
@@ -232,6 +253,19 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
   }
 
   if (findings.length === 0) return null;
-  findings.sort((a, b) => RANK[a.confidence] - RANK[b.confidence]);
-  return findings[0];
+
+  // 🚨 확인되지 않은 브랜드는 danger 까지 올리지 않는다.
+  //
+  //    화이트리스트가 틀리는 방향은 둘인데 피해 크기가 다르다.
+  //    정식 도메인을 오타로 적어두면(예: wooribank → wooribamk) 그 오타 도메인이
+  //    "정식"이 되고, **진짜 우리은행 사이트가 사칭으로 잡혀 danger 가 뜬다.**
+  //    오탐 중에서도 최악이다.
+  //
+  //    사람이 확인한 브랜드는 그 위험이 없으니 그대로 두고, 확인 전인 브랜드는
+  //    high → medium 으로 낮춰 caution 까지만 가게 한다. 사용자에게 주의는
+  //    주되 "이건 가짜입니다"라고 단정하지는 않는다.
+  const capped = findings.map(capConfidence);
+
+  capped.sort((a, b) => RANK[a.confidence] - RANK[b.confidence]);
+  return capped[0];
 }
