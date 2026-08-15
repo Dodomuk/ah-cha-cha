@@ -14,6 +14,7 @@
  * Node 런타임 전용. Edge 런타임에서는 dns/undici가 없어 가드가 무력화된다.
  */
 
+import { constants as cryptoConstants } from "node:crypto";
 import { BlockList, isIP } from "node:net";
 import { lookup as dnsLookupCb } from "node:dns";
 import { promisify } from "node:util";
@@ -208,6 +209,8 @@ export interface SafeFetchOptions {
   /** 본문을 읽을지. 헤더만 필요하면 false로 두어 대역폭·위험을 줄인다 */
   readBody?: boolean;
   maxBodyBytes?: number;
+  /** `name=value; name2=value2` 형태. 호출부가 스코프를 책임진다 */
+  cookie?: string;
 }
 
 export interface SafeFetchResult {
@@ -216,6 +219,11 @@ export interface SafeFetchResult {
   ip: string;
   status: number;
   headers: Record<string, string>;
+  /**
+   * Set-Cookie 원본. headers에 합쳐 넣으면 Expires의 쉼표와 구분되지 않아
+   * 파싱이 깨지므로 배열 그대로 따로 보관한다.
+   */
+  setCookie: string[];
   /** readBody가 true일 때만. 상한까지만 읽는다 */
   body: string | null;
   bodyTruncated: boolean;
@@ -238,6 +246,7 @@ export async function safeFetch(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     readBody = false,
     maxBodyBytes = MAX_BODY_BYTES,
+    cookie,
   } = options;
 
   const url = assertScannableUrl(rawUrl);
@@ -267,6 +276,12 @@ export async function safeFetch(
       // 인증서가 유효하지 않아도 스캔은 계속해야 하므로(그 자체가 시그널)
       // 검증 실패를 오류로 만들지 않는다.
       rejectUnauthorized: false,
+      // 구형 TLS 스택을 쓰는 서버와도 연결한다. OpenSSL 3가 기본 차단하는
+      // legacy renegotiation을 허용하지 않으면 국내 금융·공공 사이트 상당수가
+      // "응답 없음"으로 빠진다(현대카드 등 실측 확인).
+      // 스캐너는 대상 사이트를 애초에 신뢰하지 않고 비밀도 보내지 않으므로
+      // 이 완화가 우리 쪽 자산을 노출시키지는 않는다.
+      secureOptions: cryptoConstants.SSL_OP_LEGACY_SERVER_CONNECT,
       timeout: timeoutMs,
     },
     headersTimeout: timeoutMs,
@@ -290,8 +305,16 @@ export async function safeFetch(
         "user-agent": USER_AGENT,
         accept: "text/html,application/xhtml+xml,*/*;q=0.8",
         "accept-language": "ko-KR,ko;q=0.9,en;q=0.8",
+        ...(cookie ? { cookie } : {}),
       },
     });
+
+    const rawSetCookie = response.headers["set-cookie"];
+    const setCookie = Array.isArray(rawSetCookie)
+      ? rawSetCookie
+      : rawSetCookie
+        ? [String(rawSetCookie)]
+        : [];
 
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(response.headers)) {
@@ -326,6 +349,7 @@ export async function safeFetch(
       ip: resolved.address,
       status: response.statusCode,
       headers,
+      setCookie,
       body,
       bodyTruncated,
       elapsedMs: Date.now() - startedAt,

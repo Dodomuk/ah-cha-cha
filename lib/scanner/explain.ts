@@ -6,17 +6,8 @@
  * (prd.md 3.4)
  */
 
-import type { ScanResult, Signal, Verdict } from "./types";
+import type { Explanation, ScanResult, Signal, Verdict } from "./types";
 import { VERDICT_HEADLINE } from "./verdict";
-
-export interface Explanation {
-  headline: string;
-  /** 2~4개, 각 1문장 */
-  reasons: string[];
-  /** 사용자가 지금 할 일 1문장 */
-  action: string;
-  source: "template" | "llm";
-}
 
 const ACTION: Record<Verdict, string> = {
   danger:

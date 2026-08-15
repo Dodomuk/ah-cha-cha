@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { GuardError, scan } from "@/lib/scanner";
+import { explainWithClaude } from "@/lib/scanner/claude";
 import { buildFallbackExplanation } from "@/lib/scanner/explain";
 
 export const runtime = "nodejs";
@@ -29,7 +30,7 @@ const bodySchema = z.object({
 
 export async function POST(request: Request) {
   const ip = clientIp(request.headers);
-  const limit = rateLimit(`scan:${ip}`, SCAN_LIMIT, SCAN_WINDOW_MS);
+  const limit = await rateLimit(`scan:${ip}`, SCAN_LIMIT, SCAN_WINDOW_MS);
   if (!limit.allowed) {
     return NextResponse.json(
       {
@@ -57,11 +58,12 @@ export async function POST(request: Request) {
 
   try {
     const result = await scan(parsed.data.url);
+    // Claude 설명은 부가 레이어다. null이면 템플릿으로 내려간다 (prd.md 3.4)
+    const explanation =
+      (await explainWithClaude(result)) ?? buildFallbackExplanation(result);
+
     return NextResponse.json(
-      {
-        ...result,
-        explanation: buildFallbackExplanation(result),
-      },
+      { ...result, explanation },
       {
         // 검사 결과를 CDN에 태우지 않는다. 클로킹 대응상 매번 새로 확인해야 한다
         headers: { "cache-control": "no-store" },

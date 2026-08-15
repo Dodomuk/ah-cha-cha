@@ -53,6 +53,23 @@ lib/scanner/verdict.ts  시그널 → 판정
 tests/guard.test.ts     가드 회귀 테스트
 ```
 
+## 피드 동기화
+
+`/api/cron/sync-feeds` 가 OpenPhish·URLhaus 목록을 받아 Redis에 채운다.
+`Authorization: Bearer $CRON_SECRET` 이 없으면 401.
+
+스케줄은 [vercel.json](vercel.json)에 **하루 1회(18:00 UTC = 03:00 KST)** 로 걸려 있다.
+Hobby 플랜의 cron이 하루 1회로 제한되기 때문이다. Pro로 올리면 `0 */6 * * *` 로
+되돌릴 것 — 피싱 URL은 수명이 짧아 6시간 주기가 실제로 더 많이 잡는다.
+
+하루 묵은 목록으로 대조하는 구간은 **S1(Safe Browsing)이 메운다.** S1은 검사할
+때마다 구글에 실시간 조회하므로 피드 신선도와 무관하다.
+
+```bash
+# 수동 동기화
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/sync-feeds
+```
+
 ## 배포
 
 Vercel. **아직 배포하지 않았다.**

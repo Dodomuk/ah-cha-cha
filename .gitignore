@@ -41,3 +41,7 @@ yarn-error.log*
 # 로컬 피드 캐시 (OpenPhish / URLhaus 등)
 /data/feeds/
 /logs/
+
+# 마스코트 중간 산출물. 서빙은 .webp로 하고, .png는 원본 시트에서
+# scripts/slice-mascot.py 로 언제든 다시 만들 수 있다 (PNG가 WebP의 8배 용량)
+/public/mascot/poses/*.png

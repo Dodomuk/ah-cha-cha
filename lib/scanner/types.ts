@@ -73,6 +73,19 @@ export interface DomainAge {
   source: "rdap" | "none";
 }
 
+/**
+ * 사용자에게 보이는 설명. 템플릿과 LLM이 같은 모양을 만든다.
+ * 클라이언트도 쓰는 타입이라 여기(node 의존 없는 파일)에 둔다.
+ */
+export interface Explanation {
+  headline: string;
+  /** 2~4개, 각 1문장 */
+  reasons: string[];
+  /** 사용자가 지금 할 일 1문장 */
+  action: string;
+  source: "template" | "llm";
+}
+
 export interface ScanResult {
   urlHash: string;
   normalizedUrl: string;
@@ -85,4 +98,15 @@ export interface ScanResult {
   /** 캐시 만료 시각. 클로킹 대비 6시간 초과 금지 — CLAUDE.md 규칙 6 */
   expiresAt: string;
   elapsedMs: number;
+}
+
+/** `POST /api/scan` 성공 응답 */
+export interface ScanResponse extends ScanResult {
+  explanation: Explanation;
+}
+
+/** `POST /api/scan` 실패 응답 */
+export interface ScanError {
+  error: string;
+  message: string;
 }

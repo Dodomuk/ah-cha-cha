@@ -61,17 +61,3 @@ export function registrableDomain(hostname: string): string {
   return lastTwo;
 }
 
-/**
- * 피드·공유카드에 도메인을 노출할 때 쓰는 부분 마스킹.
- * 원본을 그대로 보여주면 사용자가 주소창에 옮겨 적을 수 있으므로 가운데를 가린다.
- */
-export function maskDomain(hostname: string): string {
-  const parts = hostname.split(".");
-  const masked = parts.map((part, index) => {
-    // 마지막 TLD는 그대로 두어야 어떤 종류의 주소인지 알아볼 수 있다
-    if (index === parts.length - 1 || part.length <= 2) return part;
-    const keep = part.length <= 4 ? 1 : 2;
-    return part.slice(0, keep) + "*".repeat(part.length - keep);
-  });
-  return masked.join(".");
-}

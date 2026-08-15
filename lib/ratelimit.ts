@@ -1,9 +1,67 @@
 /**
  * IP 기준 rate limit (prd.md 4-5: 검사 10회/분, 신고 5회/시간).
  *
- * MVP는 인메모리다. Vercel의 인스턴스마다 카운터가 따로 도므로 실제 허용량은
- * 설정값보다 커진다. 남용이 보이기 시작하면 Upstash Redis로 교체할 것.
+ * Redis가 설정돼 있으면 Redis를, 아니면 인메모리를 쓴다.
+ * 인메모리는 Vercel 인스턴스마다 카운터가 따로 돌아 실제 허용량이 설정값보다
+ * 커진다. 로컬 개발용 폴백이며 운영에서는 Redis 경로를 타야 한다.
  */
+
+import { redis } from "./redis";
+
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  /** 재시도까지 남은 초 */
+  retryAfterSeconds: number;
+}
+
+export async function rateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  const store = redis();
+  if (store) {
+    try {
+      return await redisRateLimit(key, limit, windowMs);
+    } catch {
+      // Redis 장애로 서비스를 멈추지는 않는다. 인메모리로 떨어뜨린다
+      return memoryRateLimit(key, limit, windowMs);
+    }
+  }
+  return memoryRateLimit(key, limit, windowMs);
+}
+
+async function redisRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  const store = redis()!;
+  const windowSeconds = Math.ceil(windowMs / 1000);
+  // 창을 시간으로 쪼개 키에 박는다. 별도 정리 작업 없이 TTL로 사라진다
+  const bucket = Math.floor(Date.now() / windowMs);
+  const redisKey = `rl:${key}:${bucket}`;
+
+  const count = await store.incr(redisKey);
+  if (count === 1) {
+    await store.expire(redisKey, windowSeconds);
+  }
+
+  if (count > limit) {
+    const elapsed = Date.now() - bucket * windowMs;
+    return {
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: Math.max(1, Math.ceil((windowMs - elapsed) / 1000)),
+    };
+  }
+  return { allowed: true, remaining: limit - count, retryAfterSeconds: 0 };
+}
+
+/* ------------------------------------------------------------------ */
+/* 인메모리 폴백                                                        */
+/* ------------------------------------------------------------------ */
 
 interface Bucket {
   count: number;
@@ -14,14 +72,7 @@ const buckets = new Map<string, Bucket>();
 /** 메모리 누수 방지 상한. 초과 시 만료된 항목부터 비운다 */
 const MAX_BUCKETS = 10_000;
 
-export interface RateLimitResult {
-  allowed: boolean;
-  remaining: number;
-  /** 재시도까지 남은 초 */
-  retryAfterSeconds: number;
-}
-
-export function rateLimit(
+function memoryRateLimit(
   key: string,
   limit: number,
   windowMs: number,

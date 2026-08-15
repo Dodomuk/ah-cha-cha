@@ -5,7 +5,9 @@
  * 무엇을 확인했고 무엇을 확인하지 못했는지가 판정만큼 중요한 정보이기 때문이다.
  */
 
+import { lookupFeed, type FeedLookup } from "./feeds";
 import { GuardError, assertScannableUrl } from "./guard";
+import { detectImpersonation } from "./impersonation";
 import { normalizeUrl, urlHash } from "./normalize";
 import { lookupDomainAge } from "./rdap";
 import { detectApkDelivery, traceRedirects } from "./redirect";
@@ -18,10 +20,7 @@ export const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 /** Sprint 2 이후에 붙는 시그널들. 지금은 확인하지 못했음을 명시한다 */
 const PENDING_SIGNALS: Array<Pick<Signal, "id" | "name" | "detail">> = [
-  { id: "S2", name: "phishing feed", detail: "피싱 신고 목록 대조는 아직 준비 중이에요." },
-  { id: "S3", name: "malware feed", detail: "악성코드 배포 목록 대조는 아직 준비 중이에요." },
   { id: "S6", name: "tls certificate", detail: "인증서 확인은 아직 준비 중이에요." },
-  { id: "S7", name: "brand impersonation", detail: "유명 사이트 사칭 여부 확인은 아직 준비 중이에요." },
   { id: "S10", name: "multi-engine scan", detail: "백신 다중 검사는 아직 준비 중이에요." },
 ];
 
@@ -45,7 +44,7 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
   const chainUrls = chain.hops.map((hop) => hop.url);
   if (chainUrls.length === 0) chainUrls.push(normalized);
 
-  const [domainAge, safeBrowsing] = await Promise.all([
+  const [domainAge, safeBrowsing, phishFeed, malwareFeed] = await Promise.all([
     lookupDomainAge(finalHostname).catch(
       (): DomainAge => ({
         domain: finalHostname,
@@ -56,6 +55,8 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
       }),
     ),
     checkSafeBrowsing(chainUrls),
+    lookupFeed("openphish", chainUrls),
+    lookupFeed("urlhaus", chainUrls),
   ]);
 
   const apk = detectApkDelivery(chain);
@@ -76,6 +77,22 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
           : "위험 주소 목록을 확인하지 못했어요.",
     raw: safeBrowsing.raw,
   });
+
+  // S2·S3 — 피싱/멀웨어 피드 대조.
+  // 완전일치는 그 페이지가 신고된 것이므로 critical, 호스트 일치는 같은 호스팅에
+  // 신고된 페이지가 있다는 뜻이라 high(=caution)까지만 올린다
+  signals.push(
+    feedSignal("S2", "phishing feed", phishFeed, {
+      url: "이 주소는 피싱 사이트로 신고된 목록에 그대로 올라 있어요.",
+      host: "이 사이트와 같은 곳에 피싱 페이지가 신고된 적이 있어요.",
+      clear: "피싱 신고 목록에는 없었어요.",
+    }),
+    feedSignal("S3", "malware feed", malwareFeed, {
+      url: "이 주소는 악성코드를 퍼뜨리는 곳으로 신고돼 있어요.",
+      host: "이 사이트와 같은 곳에서 악성코드가 배포된 적이 있어요.",
+      clear: "악성코드 배포 목록에는 없었어요.",
+    }),
+  );
 
   // S4 — 도메인 등록 나이.
   // 단독으로는 판정을 올리지 않는다(정상 서비스도 새로 열린다). severity는 medium 고정.
@@ -126,16 +143,51 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
     raw: { truncated: chain.truncated, finalUrl: chain.finalUrl },
   });
 
-  // S8 — APK 직접 다운로드 유도. 한국 스미싱의 주 경로라 단독으로 위험 판정
+  // S7 — 브랜드 사칭. 고신뢰만 danger로 올리고 나머지는 caution 이하에 둔다
+  const impersonation = detectImpersonation(
+    (() => {
+      try {
+        return new URL(chain.finalUrl);
+      } catch {
+        return parsed;
+      }
+    })(),
+  );
+  signals.push({
+    id: "S7",
+    name: "brand impersonation",
+    status: impersonation ? "hit" : "clear",
+    severity: impersonation
+      ? impersonation.confidence === "high"
+        ? "critical"
+        : impersonation.confidence === "medium"
+          ? "high"
+          : "low"
+      : undefined,
+    detail:
+      impersonation?.detail ?? "유명 기관을 사칭한 흔적은 찾지 못했어요.",
+    raw: impersonation,
+  });
+
+  // S8 — APK 직접 다운로드 유도. 한국 스미싱의 주 경로라 단독으로 위험 판정.
+  // 단, 정식 스토어(F-Droid 등)에서 받는 APK는 caution까지만 올린다.
   signals.push({
     id: "S8",
     name: "apk delivery",
     status: chain.hops.length === 0 ? "unavailable" : apk.detected ? "hit" : "clear",
-    severity: apk.detected ? "critical" : undefined,
-    detail: apk.detected
-      ? "스토어를 거치지 않고 앱 설치 파일을 바로 내려받게 합니다. 설치하면 문자와 연락처가 통째로 넘어갈 수 있어요."
-      : "앱 설치 파일을 내려주지는 않았어요.",
-    raw: apk.evidence,
+    severity: apk.detected
+      ? apk.trustedStore
+        ? "high"
+        : "critical"
+      : undefined,
+    detail: chain.hops.length === 0
+      ? "사이트에 접속하지 못해 앱 설치 파일 여부는 확인하지 못했어요."
+      : !apk.detected
+      ? "앱 설치 파일을 내려주지는 않았어요."
+      : apk.trustedStore
+        ? `${apk.trustedStore}에서 앱 설치 파일을 내려받게 합니다. 알려진 스토어지만, 앱을 직접 설치하는 것이 맞는지 확인하세요.`
+        : "스토어를 거치지 않고 앱 설치 파일을 바로 내려받게 합니다. 설치하면 문자와 연락처가 통째로 넘어갈 수 있어요.",
+    raw: { evidence: apk.evidence, trustedStore: apk.trustedStore },
   });
 
   // S9 — 사용자 신고. 표시 전용이며 판정에 반영하지 않는다 (CLAUDE.md 규칙 8)
@@ -164,6 +216,33 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
     scannedAt: scannedAt.toISOString(),
     expiresAt: new Date(scannedAt.getTime() + CACHE_TTL_MS).toISOString(),
     elapsedMs: Date.now() - startedAt,
+  };
+}
+
+function feedSignal(
+  id: "S2" | "S3",
+  name: string,
+  lookup: FeedLookup,
+  copy: { url: string; host: string; clear: string },
+): Signal {
+  if (lookup.status === "unavailable") {
+    return {
+      id,
+      name,
+      status: "unavailable",
+      detail: "위험 목록을 확인하지 못했어요.",
+    };
+  }
+  if (lookup.status === "clear") {
+    return { id, name, status: "clear", detail: copy.clear, raw: lookup };
+  }
+  return {
+    id,
+    name,
+    status: "hit",
+    severity: lookup.match === "url" ? "critical" : "high",
+    detail: lookup.match === "url" ? copy.url : copy.host,
+    raw: lookup,
   };
 }
 
