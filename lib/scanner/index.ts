@@ -5,8 +5,10 @@
  * 무엇을 확인했고 무엇을 확인하지 못했는지가 판정만큼 중요한 정보이기 때문이다.
  */
 
+import { contentSeverity, inspectContent } from "./content";
 import { lookupFeed, type FeedLookup } from "./feeds";
 import { GuardError, assertScannableUrl } from "./guard";
+import { freeHostingPlatform } from "./hosting";
 import { detectImpersonation } from "./impersonation";
 import { normalizeUrl, urlHash } from "./normalize";
 import { lookupDomainAge } from "./rdap";
@@ -44,20 +46,27 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
   const chainUrls = chain.hops.map((hop) => hop.url);
   if (chainUrls.length === 0) chainUrls.push(normalized);
 
-  const [domainAge, safeBrowsing, phishFeed, malwareFeed] = await Promise.all([
-    lookupDomainAge(finalHostname).catch(
-      (): DomainAge => ({
-        domain: finalHostname,
-        registeredAt: null,
-        ageDays: null,
-        registrar: null,
-        source: "none",
-      }),
-    ),
-    checkSafeBrowsing(chainUrls),
-    lookupFeed("openphish", chainUrls),
-    lookupFeed("urlhaus", chainUrls),
-  ]);
+  const [domainAge, safeBrowsing, phishFeed, malwareFeed, content] =
+    await Promise.all([
+      lookupDomainAge(finalHostname).catch(
+        (): DomainAge => ({
+          domain: finalHostname,
+          registeredAt: null,
+          ageDays: null,
+          registrar: null,
+          source: "none",
+        }),
+      ),
+      checkSafeBrowsing(chainUrls),
+      lookupFeed("openphish", chainUrls),
+      lookupFeed("urlhaus", chainUrls),
+      // 본문 검사는 요청을 하나 더 쓴다. 다른 조회들과 나란히 돌려서
+      // 8초 목표(prd.md 9)에 얹히는 시간이 없도록 한다.
+      // 체인 추적이 실패했으면 읽을 페이지가 없으므로 건너뛴다
+      chain.error || chain.hops.length === 0
+        ? Promise.resolve(null)
+        : inspectContent(chain.finalUrl, chain.finalContentType),
+    ]);
 
   const apk = detectApkDelivery(chain);
 
@@ -96,16 +105,23 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
 
   // S4 — 도메인 등록 나이.
   // 단독으로는 판정을 올리지 않는다(정상 서비스도 새로 열린다). severity는 medium 고정.
+  //
+  // 🚨 무료 호스팅 서브도메인에서는 이 값을 쓰지 않는다.
+  //    `abc.workers.dev`의 RDAP는 클라우드플레어가 workers.dev를 등록한 날을
+  //    돌려준다 — 어제 만든 피싱 페이지를 두고 "만든 지 4000일 됐어요"라고
+  //    말하게 된다. 모르는 것을 모른다고 해야지, 남의 나이를 빌려주면 안 된다.
+  const platform = freeHostingPlatform(finalHostname);
+  const ageKnown = domainAge.source !== "none" && !platform;
   const isNew =
-    domainAge.ageDays !== null && domainAge.ageDays < NEW_DOMAIN_DAYS;
+    ageKnown && domainAge.ageDays !== null && domainAge.ageDays < NEW_DOMAIN_DAYS;
   signals.push({
     id: "S4",
     name: "domain age",
-    status:
-      domainAge.source === "none" ? "unavailable" : isNew ? "hit" : "clear",
+    status: !ageKnown ? "unavailable" : isNew ? "hit" : "clear",
     severity: isNew ? "medium" : undefined,
-    detail:
-      domainAge.source === "none"
+    detail: platform
+      ? `누구나 페이지를 올릴 수 있는 곳(${platform})이라, 이 페이지가 언제 만들어졌는지는 알 수 없어요.`
+      : domainAge.source === "none"
         ? "이 주소가 언제 만들어졌는지는 확인할 수 없었어요."
         : isNew
           ? `이 사이트는 만든 지 ${domainAge.ageDays}일밖에 안 됐어요.`
@@ -188,6 +204,22 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
         ? `${apk.trustedStore}에서 앱 설치 파일을 내려받게 합니다. 알려진 스토어지만, 앱을 직접 설치하는 것이 맞는지 확인하세요.`
         : "스토어를 거치지 않고 앱 설치 파일을 바로 내려받게 합니다. 설치하면 문자와 연락처가 통째로 넘어갈 수 있어요.",
     raw: { evidence: apk.evidence, trustedStore: apk.trustedStore },
+  });
+
+  // S11 — 자격증명 수집 페이지. 주소가 아니라 본문을 보고 사칭을 판단한다.
+  //       S7이 주소만 봐서 놓치는 무료 호스팅 피싱이 여기서 걸린다.
+  //       도메인 나이를 함께 넘기는 이유는 contentSeverity 주석 참조
+  signals.push({
+    id: "S11",
+    name: "credential harvesting page",
+    status: content?.status ?? "unavailable",
+    severity: content
+      ? contentSeverity(content, { newDomain: isNew })
+      : undefined,
+    detail:
+      content?.detail ??
+      "사이트에 접속하지 못해 페이지 내용은 확인하지 못했어요.",
+    raw: content,
   });
 
   // S9 — 사용자 신고. 표시 전용이며 판정에 반영하지 않는다 (CLAUDE.md 규칙 8)

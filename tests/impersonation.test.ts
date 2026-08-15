@@ -164,7 +164,25 @@ test("확인되지 않은 브랜드는 danger 까지 올리지 않는다", () =>
   }
 });
 
-test("확인된 브랜드 53개는 모두 verified 다", () => {
+test("목록에 있는 브랜드는 모두 verified 다", () => {
   const unverified = BRANDS.filter((b) => !b.verified).map((b) => b.name);
   assert.deepEqual(unverified, [], `확인 안 된 브랜드: ${unverified.join(", ")}`);
+});
+
+test("contentOnly 브랜드는 주소 유사도 비교에 끼지 않는다", () => {
+  // apple(5글자)이 S7 후보에 들어가면 apply.com이 애플 사칭으로 잡힌다.
+  // 흔한 영어 단어를 라벨로 가진 브랜드를 넣을 때 반드시 지켜야 하는 성질이다
+  for (const url of [
+    "https://apply.com/",
+    "https://maple.com/",
+    "https://amazon-reviews.com/",
+    "https://gooogle.com/",
+  ]) {
+    const finding = detect(url);
+    assert.equal(
+      finding,
+      null,
+      `${url} 는 주소만으로 사칭 판정하면 안 된다 (본문 검사 S11의 몫)`,
+    );
+  }
 });

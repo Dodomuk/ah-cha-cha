@@ -39,7 +39,7 @@
 ## 판정 체계
 
 ```
-🚨 danger      : S1~S3 히트 또는 S8 히트 또는 S7 고신뢰 매칭
+🚨 danger      : S1~S3 히트 또는 S8 히트 또는 S7 고신뢰 매칭 또는 S11 정황 보강
 ⚠️ caution     : S4(30일 미만) + 다른 시그널 1개 이상
 🤔 unknown     : 응답 없음 / 접속 불가 / 시그널 부족
 ✅ no_signal   : 확인된 위험 신호 없음  ← "안전"이 아니다
@@ -61,10 +61,16 @@ lib/
     redirect.ts         리디렉션 체인 추적 (S5, S8)
     rdap.ts             도메인 등록 나이 (S4)
     safebrowsing.ts     Google Safe Browsing (S1)
+    feeds.ts            피싱·멀웨어 피드 동기화·대조 (S2, S3)
+    impersonation.ts    주소 기반 브랜드 사칭 (S7)
+    content.ts          본문 기반 자격증명 수집 페이지 (S11)
+    brands.ts           정식 브랜드 도메인 화이트리스트 (S7, S11)
+    hosting.ts          무료·즉시 발급 호스팅 목록 (S11 보조)
     verdict.ts          시그널 → 4단계 판정
     normalize.ts        URL 정규화 + url_hash
     types.ts            공용 타입
   ratelimit.ts          IP 기준 rate limit
+bench/                  교차검증 하네스 — bench/README.md 참조
 worker/                 (Phase 3) 격리 스캔 워커 — 스크린샷 전담
 ```
 

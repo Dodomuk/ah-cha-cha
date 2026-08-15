@@ -118,7 +118,11 @@ interface Candidate {
   label: string;
 }
 
-const CANDIDATES: Candidate[] = BRANDS.flatMap((brand) =>
+// contentOnly 브랜드는 여기서 뺀다. 흔한 영어 단어가 라벨이라 편집거리 비교에
+// 넣으면 무관한 도메인이 사칭으로 잡힌다 (apple ↔ apply). brands.ts 주석 참조
+const CANDIDATES: Candidate[] = BRANDS.filter(
+  (brand) => !brand.contentOnly,
+).flatMap((brand) =>
   brand.domains.map((domain) => ({
     brand,
     officialDomain: domain,
