@@ -97,6 +97,55 @@ def background_mask(tile: np.ndarray) -> np.ndarray:
     return mask
 
 
+"""물음표를 칠할 색. 마스코트 부리·발의 주황 계열이라 팔레트를 벗어나지 않는다."""
+ACCENT = (245, 138, 26)
+
+"""
+물음표 재채색을 적용할 포즈.
+
+원본 시트의 물음표는 몸통과 같은 회색빛 파랑(#616280)이라 배경과 잘 구분되지 않는다.
+그렇다고 색 전체를 바꾸면 펭귄까지 주황이 되므로, 몸통에서 **떨어져 있는**
+작은 덩어리만 골라 칠한다.
+
+`excited`의 반짝임도 떨어져 있지만 거긴 손대지 않는다 — 반짝임은 파랑이 자연스럽다.
+"""
+RECOLOR_POSES = {"puzzled"}
+
+
+def recolor_detached_marks(rgba: np.ndarray, color: tuple[int, int, int]) -> None:
+    """가장 큰 덩어리(펭귄)를 뺀 나머지 작은 덩어리들의 색을 바꾼다. 제자리 수정."""
+    height, width = rgba.shape[:2]
+    visible = rgba[..., 3] > 16
+    seen = np.zeros((height, width), dtype=bool)
+    components: list[list[tuple[int, int]]] = []
+
+    for start_y in range(height):
+        for start_x in range(width):
+            if not visible[start_y, start_x] or seen[start_y, start_x]:
+                continue
+            queue = deque([(start_y, start_x)])
+            seen[start_y, start_x] = True
+            points = []
+            while queue:
+                y, x = queue.popleft()
+                points.append((y, x))
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < height and 0 <= nx < width:
+                        if visible[ny, nx] and not seen[ny, nx]:
+                            seen[ny, nx] = True
+                            queue.append((ny, nx))
+            components.append(points)
+
+    if len(components) < 2:
+        return
+    components.sort(key=len, reverse=True)
+    # [0]은 펭귄 본체. 나머지가 물음표의 획과 점이다
+    for points in components[1:]:
+        for y, x in points:
+            rgba[y, x, 0:3] = color
+
+
 def main() -> None:
     source = Image.open(SOURCE).convert("RGB")
     pixels = np.asarray(source).astype(int)
@@ -119,7 +168,11 @@ def main() -> None:
             rgba = np.dstack(
                 [tile, np.where(transparent, 0, 255)],
             ).astype(np.uint8)
-            image = Image.fromarray(rgba, mode="RGBA")
+
+            if pose in RECOLOR_POSES:
+                recolor_detached_marks(rgba, ACCENT)
+
+            image = Image.fromarray(rgba)
 
             # 남은 여백을 잘라 포즈마다 크기가 제각각인 캔버스를 없앤다
             bbox = image.getbbox()
