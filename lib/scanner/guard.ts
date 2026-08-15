@@ -203,6 +203,42 @@ const USER_AGENT =
 const DEFAULT_TIMEOUT_MS = 8_000;
 const MAX_BODY_BYTES = 512 * 1024;
 
+/**
+ * 본문을 문자열로 푼다.
+ *
+ * 무조건 UTF-8로 읽으면 안 된다 — 한국 사이트에는 EUC-KR이 아직 많고, 그걸
+ * UTF-8로 읽으면 제목이 통째로 깨진다. 브랜드 사칭을 제목에서 찾는 S11이
+ * 한국어 페이지에서만 눈이 머는 셈이 된다.
+ *
+ * 브라우저와 같은 순서로 인코딩을 정한다: 응답 헤더 → `<meta charset>` → UTF-8.
+ */
+function decodeBody(buffer: Buffer, contentType: string | undefined): string {
+  const fromHeader = contentType?.match(/charset\s*=\s*["']?([\w-]+)/i)?.[1];
+
+  // meta 태그를 찾으려면 일단 뭐라도 읽어야 한다. ASCII 구간만 보면 되므로
+  // latin1로 훑는다 — 어떤 바이트든 손실 없이 1:1 대응되는 인코딩이다
+  const fromMeta = fromHeader
+    ? undefined
+    : buffer
+        .subarray(0, 4096)
+        .toString("latin1")
+        .match(
+          /<meta[^>]+charset\s*=\s*["']?([\w-]+)|<meta[^>]+content\s*=\s*["'][^"']*charset\s*=\s*([\w-]+)/i,
+        )
+        ?.slice(1)
+        .find(Boolean);
+
+  const label = (fromHeader ?? fromMeta ?? "utf-8").toLowerCase();
+  if (label === "utf-8" || label === "utf8") return buffer.toString("utf8");
+
+  try {
+    // 모르는 인코딩 이름이면 TextDecoder가 던진다. 그때는 UTF-8로 되돌린다
+    return new TextDecoder(label, { fatal: false }).decode(buffer);
+  } catch {
+    return buffer.toString("utf8");
+  }
+}
+
 export interface SafeFetchOptions {
   method?: "GET" | "HEAD";
   timeoutMs?: number;
@@ -211,6 +247,14 @@ export interface SafeFetchOptions {
   maxBodyBytes?: number;
   /** `name=value; name2=value2` 형태. 호출부가 스코프를 책임진다 */
   cookie?: string;
+  /**
+   * User-Agent를 바꾼다. 기본값은 자신을 봇이라고 밝히는 문자열이다.
+   *
+   * 피싱 키트는 봇으로 보이는 요청에 정상 페이지를 대신 내주는 클로킹을
+   * 흔히 쓴다. 그 영향을 재거나 우회해야 할 때만 쓰고, 기본값을 바꾸지 말 것 —
+   * 정직하게 밝히는 쪽이 기본이어야 한다.
+   */
+  userAgent?: string;
 }
 
 export interface SafeFetchResult {
@@ -247,6 +291,7 @@ export async function safeFetch(
     readBody = false,
     maxBodyBytes = MAX_BODY_BYTES,
     cookie,
+    userAgent = USER_AGENT,
   } = options;
 
   const url = assertScannableUrl(rawUrl);
@@ -302,7 +347,7 @@ export async function safeFetch(
       // 자동 추적을 켜면 중간 홉의 IP 검증이 통째로 우회된다.
       signal: abort,
       headers: {
-        "user-agent": USER_AGENT,
+        "user-agent": userAgent,
         accept: "text/html,application/xhtml+xml,*/*;q=0.8",
         "accept-language": "ko-KR,ko;q=0.9,en;q=0.8",
         ...(cookie ? { cookie } : {}),
@@ -339,7 +384,7 @@ export async function safeFetch(
         }
         chunks.push(buffer);
       }
-      body = Buffer.concat(chunks).toString("utf8");
+      body = decodeBody(Buffer.concat(chunks), headers["content-type"]);
     }
     // 본문을 읽지 않더라도 소켓을 비워야 커넥션이 정리된다
     await response.body.dump().catch(() => {});
