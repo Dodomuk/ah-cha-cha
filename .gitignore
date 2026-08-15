@@ -42,6 +42,10 @@ yarn-error.log*
 /data/feeds/
 /logs/
 
+# 교차검증 코퍼스와 결과. 악성 URL 원문이 그대로 들어 있으므로 커밋하지 않는다
+/bench/data/
+/bench/out/
+
 # 마스코트 중간 산출물. 서빙은 .webp로 하고, .png는 원본 시트에서
 # scripts/slice-mascot.py 로 언제든 다시 만들 수 있다 (PNG가 WebP의 8배 용량)
 /public/mascot/poses/*.png
