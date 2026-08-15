@@ -30,3 +30,14 @@ body {
      잘린다. 주소처럼 반드시 끊어야 하는 곳은 break-all을 따로 준다 */
   word-break: keep-all;
 }
+
+/* 법적 문서 안의 링크. 본문에 섞여 있어 밑줄이 없으면 링크인지 알 수 없다 */
+.legal a {
+  color: var(--color-brand);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.legal code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}

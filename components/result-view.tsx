@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import {
   VERDICT_STYLE,
   formatScanTime,
@@ -10,6 +12,8 @@ import type { ScanResponse } from "@/lib/scanner/types";
 
 import { Mascot } from "./mascot";
 import type { MascotPose } from "./mascot";
+import { ReportForm } from "./report-form";
+import { ShareButton } from "./share-button";
 
 /**
  * 결과 화면 (prd.md 6.2 ③).
@@ -24,10 +28,14 @@ import type { MascotPose } from "./mascot";
 export function ResultView({
   result,
   onReset,
+  onRefresh,
 }: {
   result: ScanResponse;
   onReset: () => void;
+  /** 캐시를 무시하고 다시 검사 */
+  onRefresh: () => void;
 }) {
+  const [reporting, setReporting] = useState(false);
   const style = VERDICT_STYLE[result.verdict];
   const maskedDomain = maskDomain(hostnameOf(result.finalUrl));
 
@@ -45,18 +53,50 @@ export function ResultView({
 
       <DetailReport result={result} />
 
+      {reporting ? (
+        <ReportForm urlHash={result.urlHash} onDone={() => setReporting(false)} />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <ShareButton urlHash={result.urlHash} />
+          <button
+            type="button"
+            onClick={() => setReporting(true)}
+            className="self-start text-sm underline underline-offset-4 opacity-60 hover:opacity-100"
+          >
+            이 사이트 신고하기
+          </button>
+        </div>
+      )}
+
       <footer className="flex flex-col gap-3 border-t border-current/10 pt-4 text-sm">
+        {/* 🚨 저장해둔 결과라는 사실을 숨기지 않는다. 6시간 전 결과를 방금 확인한
+            것처럼 보여주면 그 사이 위험해진 사이트를 안전하다고 말하는 셈이다 */}
+        {result.fromCache && (
+          <p className="rounded-lg bg-current/5 px-3 py-2 opacity-70">
+            {formatScanTime(result.scannedAt)}에 확인한 결과를 그대로 보여드렸어요.
+            지금 다시 확인하려면 아래 &lsquo;다시 검사&rsquo;를 눌러주세요.
+          </p>
+        )}
         <p className="opacity-60">
           검사 시점: {formatScanTime(result.scannedAt)} · 새 위험 사이트는 계속
           생겨요. 이 결과는 지금 확인한 범위입니다.
         </p>
-        <button
-          type="button"
-          onClick={onReset}
-          className="self-start rounded-full border border-current/20 px-5 py-2 font-medium transition hover:bg-current/5"
-        >
-          다른 주소 검사하기
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="rounded-full border border-current/20 px-5 py-2 font-medium transition hover:bg-current/5"
+          >
+            다시 검사
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            className="rounded-full border border-current/20 px-5 py-2 font-medium transition hover:bg-current/5"
+          >
+            다른 주소 검사하기
+          </button>
+        </div>
       </footer>
     </div>
   );

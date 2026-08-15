@@ -11,6 +11,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import { hostnameOf, maskDomain } from "../display";
 import type { Explanation, ScanResult, Signal } from "./types";
 import { VERDICT_LABEL } from "./verdict";
 
@@ -159,13 +160,16 @@ function buildUserPrompt(result: ScanResult): string {
   );
   const failed = result.signals.filter((signal) => signal.status === "error");
 
+  // 🚨 주소 원문을 보내지 않는다. 설명을 만드는 데 필요하지 않고
+  //    (프롬프트에서 주소를 쓰지 말라고 지시한다), 보내는 순간 사용자가
+  //    검사한 주소가 제3자에게 넘어간다. 마스킹된 도메인이면 충분하다.
   const lines = [
     `판정: ${result.verdict} (${VERDICT_LABEL[result.verdict]})`,
-    `검사한 주소: ${result.normalizedUrl}`,
+    `검사한 사이트: ${maskDomain(hostnameOf(result.normalizedUrl))}`,
   ];
 
   if (result.finalUrl !== result.normalizedUrl) {
-    lines.push(`최종 도착지: ${result.finalUrl}`);
+    lines.push(`최종 도착지: ${maskDomain(hostnameOf(result.finalUrl))}`);
   }
   if (result.redirectChain.length > 1) {
     lines.push(`주소를 갈아탄 횟수: ${result.redirectChain.length}회`);

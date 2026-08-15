@@ -103,6 +103,12 @@ export interface ScanResult {
 /** `POST /api/scan` 성공 응답 */
 export interface ScanResponse extends ScanResult {
   explanation: Explanation;
+  /**
+   * 저장해둔 결과를 그대로 돌려준 것인가.
+   * 화면에서 이 사실을 알려야 한다 — 6시간 전 결과를 방금 확인한 것처럼
+   * 보여주면 그 사이 위험해진 사이트를 안전하다고 말하는 셈이 된다.
+   */
+  fromCache?: boolean;
 }
 
 /** `POST /api/scan` 실패 응답 */

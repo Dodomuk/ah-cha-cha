@@ -19,11 +19,10 @@ export function ScanExperience() {
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const submit = useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault();
-      const trimmed = url.trim();
-      if (!trimmed || phase.status === "scanning") return;
+  const runScan = useCallback(
+    async (target: string, refresh = false) => {
+      const trimmed = target.trim();
+      if (!trimmed) return;
 
       setPhase({ status: "scanning" });
       try {
@@ -32,7 +31,7 @@ export function ScanExperience() {
         const response = await fetch("/api/scan", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: trimmed }),
+          body: JSON.stringify({ url: trimmed, refresh }),
         });
         const data = (await response.json()) as ScanResponse | ScanError;
 
@@ -54,7 +53,16 @@ export function ScanExperience() {
         });
       }
     },
-    [url, phase.status],
+    [],
+  );
+
+  const submit = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      if (phase.status === "scanning") return;
+      void runScan(url);
+    },
+    [url, phase.status, runScan],
   );
 
   const reset = useCallback(() => {
@@ -82,7 +90,13 @@ export function ScanExperience() {
   if (phase.status === "scanning") return <ScanningView />;
 
   if (phase.status === "result") {
-    return <ResultView result={phase.result} onReset={reset} />;
+    return (
+      <ResultView
+        result={phase.result}
+        onReset={reset}
+        onRefresh={() => void runScan(phase.result.normalizedUrl, true)}
+      />
+    );
   }
 
   return (

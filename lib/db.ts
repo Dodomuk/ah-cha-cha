@@ -1,0 +1,31 @@
+/**
+ * Supabase (PostgreSQL) 접근.
+ *
+ * 🚨 여기서 쓰는 키는 RLS를 우회하는 서버 전용 키다. 이 모듈을 클라이언트
+ *    컴포넌트에서 import하지 말 것. 브라우저 번들에 들어가면 신고자 IP 해시와
+ *    위험 판정된 주소 원문이 통째로 노출된다.
+ *
+ * 키가 없으면 null을 반환한다. DB 없이도 검사 자체는 동작해야 한다.
+ */
+
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+let client: SupabaseClient | null | undefined;
+
+export function db(): SupabaseClient | null {
+  if (client !== undefined) return client;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SECRET_KEY;
+  client =
+    url && key
+      ? createClient(url, key, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        })
+      : null;
+  return client;
+}
+
+export function dbConfigured(): boolean {
+  return db() !== null;
+}
