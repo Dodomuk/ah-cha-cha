@@ -1,32 +1,43 @@
-# 환경변수 (절대 커밋 금지)
-.env
-.env.local
-.env.*.local
-backend/.env
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
 
-# Node
-node_modules/
-frontend/.next/
-frontend/out/
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
-*.egg-info/
+# production
+/build
 
-# OS
+# misc
 .DS_Store
 Thumbs.db
+*.pem
 
 # IDE
 .vscode/
 .idea/
 
-# Claude Code
+# Claude Code — 로컬 권한 설정이 들어가므로 커밋하지 않는다
 .claude/
 
-# Logs
-*.log
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env — 절대 커밋 금지
+.env
+.env.*
+!.env.example
+
+# vercel
+.vercel
+
+# 로컬 피드 캐시 (OpenPhish / URLhaus 등)
+/data/feeds/
+/logs/

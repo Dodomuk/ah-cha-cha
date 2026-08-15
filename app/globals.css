@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme {
+  /* 판정 4단계 색. 위험은 다른 어떤 색보다 강해야 한다 (prd.md 0 톤 원칙) */
+  --color-verdict-danger: oklch(0.55 0.22 27);
+  --color-verdict-caution: oklch(0.72 0.16 75);
+  --color-verdict-unknown: oklch(0.62 0.03 250);
+  --color-verdict-clear: oklch(0.6 0.13 155);
+
+  --color-brand: oklch(0.62 0.17 250);
+}
+
+:root {
+  --background: oklch(0.99 0.005 250);
+  --foreground: oklch(0.22 0.02 250);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.18 0.02 250);
+    --foreground: oklch(0.94 0.01 250);
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
