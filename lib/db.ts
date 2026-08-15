@@ -15,7 +15,9 @@ let client: SupabaseClient | null | undefined;
 export function db(): SupabaseClient | null {
   if (client !== undefined) return client;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // NEXT_PUBLIC_ 접두사를 쓰지 않는다. 이 값은 서버에서만 필요하고,
+  // 접두사를 붙이면 브라우저 번들에 들어간다
+  const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SECRET_KEY;
   client =
     url && key
