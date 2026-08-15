@@ -52,8 +52,16 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  // 사용자에게는 같은 문구를 보여주되(설정 상태를 밖으로 흘리지 않는다),
+  // 로그에는 무엇이 빠졌는지 구분해서 남긴다. 안 그러면 503만 보고
+  // 어느 환경변수가 없는지 알 수 없다
   const store = db();
-  if (!store) return fail(503, "신고 기능을 준비 중이에요.");
+  if (!store) {
+    console.error(
+      "[report] SUPABASE_URL 또는 SUPABASE_SECRET_KEY 미설정 — 신고를 받지 않는다",
+    );
+    return fail(503, "신고 기능을 준비 중이에요.");
+  }
   if (!turnstileConfigured()) {
     console.error("[report] TURNSTILE_SECRET_KEY 미설정 — 신고를 받지 않는다");
     return fail(503, "신고 기능을 준비 중이에요.");

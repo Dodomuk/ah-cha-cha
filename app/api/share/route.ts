@@ -62,6 +62,9 @@ export async function POST(request: Request) {
 
   const shortId = await createSharedResult(result);
   if (!shortId) {
+    console.error(
+      "[share] 공유 레코드 생성 실패 — SUPABASE_URL / SUPABASE_SECRET_KEY 확인",
+    );
     return NextResponse.json(
       { error: "share_failed", message: "공유 링크를 만들지 못했어요." },
       { status: 500 },
