@@ -103,3 +103,36 @@ test("levenshtein은 상한을 넘으면 조기 종료한다", () => {
   assert.equal(levenshtein("kbstar", "kbsttat"), 2);
   assert.ok(levenshtein("kbstar", "completely-different") > 3);
 });
+
+test("이름이 같고 TLD만 다르면 위험으로 단정하지 않는다", () => {
+  // 대형 플랫폼은 자기 이름의 다른 TLD를 직접 갖고 있는 경우가 많다.
+  // 실측으로 naver.co.kr·naver.net·coupang.co.kr·gmarket.com·kakao.co.kr이
+  // 전부 본인 소유임을 확인했다. 이걸 danger로 올리면 진짜 사이트가
+  // "가짜"로 표시된다 — 오탐 중에서도 최악이다.
+  for (const url of [
+    "https://kakao.net/",
+    "https://naver.io/",
+    "https://coupang.net/",
+  ]) {
+    const finding = detect(url);
+    assert.ok(finding, `${url} 는 정황으로는 잡혀야 한다`);
+    assert.equal(finding.kind, "other_tld", url);
+    assert.equal(finding.confidence, "low", `${url} 는 단독으로 판정을 올리면 안 된다`);
+  }
+});
+
+test("짧은 라벨 브랜드는 TLD 검사에서도 제외된다", () => {
+  // 11st(4글자), toss(4글자)처럼 짧은 라벨은 편집거리 비교에서 빠지는데,
+  // TLD 검사도 같은 분기 안에 있어서 함께 빠진다. 의도한 동작이다 —
+  // 짧은 라벨은 무관한 도메인과도 쉽게 겹쳐 오탐이 난다.
+  assert.equal(detect("https://11st.com/"), null);
+  assert.equal(detect("https://toss.net/"), null);
+});
+
+test("글자를 실제로 바꾼 경우는 여전히 고신뢰로 잡는다", () => {
+  // other_tld 분기가 homoglyph 탐지를 삼키지 않았는지 확인
+  const folded = detect("https://kakα o.com/".replace(" ", ""));
+  assert.ok(folded);
+  assert.equal(folded.confidence, "high");
+  assert.equal(folded.kind, "homoglyph");
+});

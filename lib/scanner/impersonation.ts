@@ -24,6 +24,7 @@ export type ImpersonationKind =
   | "homoglyph" // 눈으로 구별 안 되는 문자 치환
   | "lookalike" // 한두 글자 차이
   | "subdomain" // 정식 브랜드가 서브도메인에만 존재
+  | "other_tld" // 이름은 똑같고 뒤에 붙은 주소만 다름
   | "path_only"; // 브랜드명이 경로·쿼리에만 존재
 
 export interface ImpersonationFinding {
@@ -167,7 +168,29 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
     }
 
     if (official.length >= MIN_LABEL_FOR_DISTANCE) {
-      // 2. Homoglyph — 접었을 때 같아지면 육안으로 구별이 안 된다는 뜻
+      // 2. 이름은 완전히 같고 TLD만 다른 경우 (kakao.net, naver.io).
+      //    이걸 사칭으로 단정하면 안 된다 — 대형 플랫폼은 자기 이름의 다른 TLD를
+      //    직접 갖고 있는 경우가 많다. 실측: naver.co.kr·naver.net·coupang.co.kr·
+      //    gmarket.com·kakao.co.kr 전부 본인 소유였다.
+      //    대부분은 본진으로 리디렉션되므로 최종 도착지 검사에서 이미 걸러지고,
+      //    여기까지 오는 건 리디렉션하지 않는 소수다. 그마저도 스쿼터일 수도,
+      //    브랜드의 별도 서비스일 수도 있어 판단이 안 선다.
+      //    → 단독으로는 판정을 올리지 않는 low로 둔다.
+      if (label === official) {
+        findings.push({
+          brand: brand.name,
+          category: brand.category,
+          officialDomain,
+          kind: "other_tld",
+          confidence: "low",
+          detail: `${brand.name}와 이름은 같지만 주소 뒷부분이 달라요 (진짜는 ${officialDomain}). ${brand.name}가 직접 쓰는 주소일 수도 있어요.`,
+        });
+        continue;
+      }
+
+      // 3. Homoglyph — 접었을 때 같아지면 육안으로 구별이 안 된다는 뜻.
+      //    글자가 완전히 같은 경우는 위에서 걸렀다. 여기 오는 건 진짜로
+      //    다르게 쓴 것이다 (kbst4r, 키릴 문자 등)
       if (foldedLabel === foldHomoglyphs(official)) {
         findings.push({
           brand: brand.name,
@@ -180,7 +203,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
         continue;
       }
 
-      // 3. 유사 도메인 — 한 글자 차이는 오타 유도, 두 글자는 정황 수준
+      // 4. 유사 도메인 — 한 글자 차이는 오타 유도, 두 글자는 정황 수준
       const distance = levenshtein(label, official);
       if (distance <= 2) {
         findings.push({
@@ -194,7 +217,7 @@ export function detectImpersonation(url: URL): ImpersonationFinding | null {
         continue;
       }
 
-      // 4. 경로·쿼리에만 브랜드명 — 단독으로는 근거가 약하다
+      // 5. 경로·쿼리에만 브랜드명 — 단독으로는 근거가 약하다
       if (haystack.includes(official)) {
         findings.push({
           brand: brand.name,
