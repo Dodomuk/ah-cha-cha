@@ -103,7 +103,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const domainId = await ensureDomain(hostnameOf(scanResult.finalUrl));
+  // 🚨 판정을 함께 남긴다. 이게 없으면 관리자 큐에서 가장 중요한 케이스 —
+  //    "엔진은 위험 신호가 없다고 했는데 사용자는 위험하다고 신고했다" — 를
+  //    구별할 수 없다. 그 불일치가 우리가 얻을 수 있는 가장 비싼 정보다
+  //    (prd.md 0.1절). persistScan 은 위험 판정일 때만 도메인 행을 만들기
+  //    때문에, no_signal 을 신고한 경우 여기서 채우지 않으면 영영 비어 있다
+  const domainId = await ensureDomain(hostnameOf(scanResult.finalUrl), {
+    current_verdict: scanResult.verdict,
+  });
   if (!domainId) return fail(500, "신고를 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
 
   // 원본 IP는 저장하지 않는다. 같은 사람의 중복 신고만 걸러내면 된다
