@@ -19,12 +19,26 @@ export function db(): SupabaseClient | null {
   // 접두사를 붙이면 브라우저 번들에 들어간다
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SECRET_KEY;
-  client =
-    url && key
-      ? createClient(url, key, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        })
-      : null;
+  if (!url || !key) {
+    client = null;
+    return client;
+  }
+
+  try {
+    client = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  } catch (error) {
+    // 🚨 여기서 던지면 검사 전체가 실패한다. DB는 부가 기능이지 필수 경로가
+    //    아니다 — 결과를 못 남기는 것과 검사를 못 하는 것은 전혀 다른 일이다.
+    //    (실제로 걸렸던 경우: Node 20에서 Supabase 클라이언트가 WebSocket을
+    //     찾지 못해 생성자에서 던진다. 로컬 스크립트·벤치가 통째로 멈췄다)
+    console.error(
+      "[db] Supabase 클라이언트를 만들지 못했습니다:",
+      error instanceof Error ? error.message : error,
+    );
+    client = null;
+  }
   return client;
 }
 

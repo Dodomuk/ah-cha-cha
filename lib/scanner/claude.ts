@@ -155,10 +155,14 @@ export async function explainWithClaude(
  * 뒤섞는 건 이 서비스가 가장 하면 안 되는 일이다.
  */
 function buildUserPrompt(result: ScanResult): string {
-  const confirmed = result.signals.filter(
+  // 🚨 S9(사용자 신고)는 넘기지 않는다. 여기 넣으면 모델이 신고 건수를 판정의
+  //    근거 문장으로 써버린다 — 판정과 신고를 섞지 않는다는 규칙(CLAUDE.md 8)을
+  //    설명 레이어에서 어기게 된다. 신고 건수는 상세 목록에 사실로만 노출한다
+  const scoring = result.signals.filter((signal) => signal.id !== "S9");
+  const confirmed = scoring.filter(
     (signal) => signal.status === "hit" || signal.status === "clear",
   );
-  const failed = result.signals.filter((signal) => signal.status === "error");
+  const failed = scoring.filter((signal) => signal.status === "error");
 
   // 🚨 주소 원문을 보내지 않는다. 설명을 만드는 데 필요하지 않고
   //    (프롬프트에서 주소를 쓰지 말라고 지시한다), 보내는 순간 사용자가

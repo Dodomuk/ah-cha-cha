@@ -12,6 +12,7 @@ import { freeHostingPlatform } from "./hosting";
 import { detectImpersonation } from "./impersonation";
 import { normalizeUrl, urlHash } from "./normalize";
 import { lookupDomainAge } from "./rdap";
+import { describeReports, lookupReportCount } from "./reports";
 import { detectApkDelivery, traceRedirects } from "./redirect";
 import { checkSafeBrowsing, describeThreat } from "./safebrowsing";
 import type { DomainAge, ScanResult, Signal } from "./types";
@@ -46,7 +47,7 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
   const chainUrls = chain.hops.map((hop) => hop.url);
   if (chainUrls.length === 0) chainUrls.push(normalized);
 
-  const [domainAge, safeBrowsing, phishFeed, malwareFeed, content] =
+  const [domainAge, safeBrowsing, phishFeed, malwareFeed, content, reports] =
     await Promise.all([
       lookupDomainAge(finalHostname).catch(
         (): DomainAge => ({
@@ -66,6 +67,7 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
       chain.error || chain.hops.length === 0
         ? Promise.resolve(null)
         : inspectContent(chain.finalUrl, chain.finalContentType),
+      lookupReportCount(finalHostname),
     ]);
 
   const apk = detectApkDelivery(chain);
@@ -88,8 +90,19 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
   });
 
   // S2·S3 — 피싱/멀웨어 피드 대조.
-  // 완전일치는 그 페이지가 신고된 것이므로 critical, 호스트 일치는 같은 호스팅에
-  // 신고된 페이지가 있다는 뜻이라 high(=caution)까지만 올린다
+  //
+  // 완전일치는 그 페이지가 신고된 것이므로 critical.
+  //
+  // 🚨 호스트 일치는 medium 이다. 단독으로는 판정을 올리지 않는다.
+  //    실측(2026-08-16)에서 정상 상위 도메인 200개 중 3개가 호스트 일치만으로
+  //    caution 이 됐다 — 한때 악성코드에 이용됐다가 복구된 사이트들이다.
+  //    "같은 호스트에 신고된 페이지가 있다"는 그 페이지가 지금도 위험하다는
+  //    뜻이 아니다. 공유 호스팅·파일 저장소라면 더더욱 아니다.
+  //
+  //    URL 건수로 거르는 방법을 먼저 재봤는데 통하지 않았다. 신고 URL이 1건인
+  //    호스트의 6.4%가 정상 상위 도메인인 반면, 10건 이상인 호스트는 17.6%가
+  //    그랬다 — 대규모로 악용되는 정상 서비스(파일 저장소·메일 발송 서비스)가
+  //    건수 상위에 몰려 있기 때문이다. 건수는 판별 기준이 아니다.
   signals.push(
     feedSignal("S2", "phishing feed", phishFeed, {
       url: "이 주소는 피싱 사이트로 신고된 목록에 그대로 올라 있어요.",
@@ -222,12 +235,15 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
     raw: content,
   });
 
-  // S9 — 사용자 신고. 표시 전용이며 판정에 반영하지 않는다 (CLAUDE.md 규칙 8)
+  // S9 — 사용자 신고. 표시 전용이며 판정에 반영하지 않는다 (CLAUDE.md 규칙 8).
+  //      severity를 주지 않는 것이 중요하다 — 값이 있으면 verdict.ts가 세지
+  //      않더라도 설명 레이어에서 근거처럼 앞자리에 올라온다
   signals.push({
     id: "S9",
     name: "user reports",
-    status: "unavailable",
-    detail: "사용자 신고 기능은 아직 준비 중이에요.",
+    status: reports.status,
+    detail: describeReports(reports),
+    raw: { count: reports.count, reviewed: reports.reviewed },
   });
 
   for (const pending of PENDING_SIGNALS) {
@@ -272,7 +288,8 @@ function feedSignal(
     id,
     name,
     status: "hit",
-    severity: lookup.match === "url" ? "critical" : "high",
+    // 호스트 일치를 high 로 두면 그것만으로 caution 이 된다. 위 주석 참조
+    severity: lookup.match === "url" ? "critical" : "medium",
     detail: lookup.match === "url" ? copy.url : copy.host,
     raw: lookup,
   };

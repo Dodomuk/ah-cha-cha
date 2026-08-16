@@ -37,9 +37,14 @@ export function buildFallbackExplanation(result: ScanResult): Explanation {
  * "사이트가 응답하지 않아요")가 사용자가 가장 알고 싶어 하는 정보이기 때문이다.
  * 이걸 빼면 unknown 판정에서 아무 근거도 남지 않는다.
  */
-function pickReasons(signals: Signal[]): string[] {
+function pickReasons(allSignals: Signal[]): string[] {
   const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 } as const;
   const detailOf = (list: Signal[]) => list.map((signal) => signal.detail!);
+
+  // 🚨 S9(사용자 신고)는 근거로 쓰지 않는다. 이 목록은 "왜 이런 판정이 나왔나"를
+  //    설명하는 자리인데, 신고는 판정에 반영되지 않는다 (CLAUDE.md 규칙 8).
+  //    여기 끼워 넣으면 화면상 신고가 판정의 근거처럼 읽힌다
+  const signals = allSignals.filter((signal) => signal.id !== "S9");
 
   const hits = signals
     .filter((signal) => signal.status === "hit" && signal.detail)
