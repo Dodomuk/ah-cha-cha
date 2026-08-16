@@ -108,11 +108,19 @@ test("브랜드 사칭은 정황이 하나 더 있을 때만 danger 까지 올�
   assert.equal(contentSeverity(onFreeHost, { newDomain: false }), "critical");
 });
 
-test("무료 호스팅만으로는 단독 판정을 올리지 않는다", () => {
-  // medium 은 verdict.ts 에서 단독으로 아무 판정도 올리지 않는다.
-  // 정상 개인 프로젝트도 "무료 호스팅 + 로그인 폼" 모양이기 때문이다
+test("무료 호스팅 + 비밀번호는 caution 까지만 올린다", () => {
+  // 실측: 무료 호스팅 위의 정상 프로젝트 112건 중 비밀번호 입력란은 0건.
+  // 그래서 caution(high)까지는 올리되, 표본 편향 가능성 때문에 danger 로는
+  // 올리지 않는다. content.ts 의 contentSeverity 주석 참조
   const finding = inspectHtml(page("Login", PASSWORD), "abc.vercel.app");
-  assert.equal(contentSeverity(finding, { newDomain: false }), "medium");
+  assert.equal(contentSeverity(finding, { newDomain: false }), "high");
+  assert.equal(contentSeverity(finding, { newDomain: true }), "high");
+});
+
+test("무료 호스팅이라도 비밀번호를 받지 않으면 severity 를 주지 않는다", () => {
+  const finding = inspectHtml(page("내 블로그", ID_ONLY), "abc.vercel.app");
+  assert.equal(finding.status, "clear");
+  assert.equal(contentSeverity(finding, { newDomain: false }), undefined);
 });
 
 test("clear 상태에는 severity를 주지 않는다", () => {

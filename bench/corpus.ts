@@ -136,7 +136,103 @@ export const SOURCES: Source[] = [
     isEngineInput: false,
     parse: parseRankedCsv,
   },
+  {
+    id: "freehost",
+    name: "GitHub — 무료 호스팅에 올라온 정상 프로젝트",
+    label: "benign",
+    // 아래 fetchFreeHostCorpus 가 대신 처리한다. url·parse 는 쓰이지 않는다
+    url: "",
+    isEngineInput: false,
+    parse: () => [],
+  },
 ];
+
+/* ------------------------------------------------------------------ */
+/* 무료 호스팅 위의 정상 사이트                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tranco 같은 순위 목록에는 무료 호스팅 서브도메인이 한 건도 없다 —
+ * 등록가능 도메인 단위로 집계되기 때문이다. 그래서 "vercel.app 에 올라온
+ * 정상 사이트"의 오탐률을 잴 표본이 없었다.
+ *
+ * GitHub에서 가져온다. 자기 프로젝트를 무료 호스팅에 올리고 그 주소를 저장소
+ * 설명에 적어둔 사람들이다 — 공격자가 아니라 개발자가 만든 진짜 사이트다.
+ *
+ * 인증 없이 쓰면 검색 API가 분당 10회로 묶이므로 요청 사이를 벌린다.
+ */
+const GITHUB_QUERIES = [
+  "github.io+in:name+stars:>3",
+  "vercel.app+in:description",
+  "netlify.app+in:description",
+  "pages.dev+in:description",
+  "workers.dev+in:description",
+];
+
+async function fetchFreeHostCorpus(): Promise<string[]> {
+  const found = new Set<string>();
+
+  for (const [index, query] of GITHUB_QUERIES.entries()) {
+    for (const page of [1, 2]) {
+      // 분당 10회 제한. 여유 있게 벌린다
+      if (index > 0 || page > 1) {
+        await new Promise((resolve) => setTimeout(resolve, 7_000));
+      }
+
+      let items: Array<{ homepage?: string | null; full_name?: string }>;
+      try {
+        const response = await fetch(
+          `https://api.github.com/search/repositories?q=${query}&per_page=100&page=${page}`,
+          {
+            headers: { accept: "application/vnd.github+json", "user-agent": UA },
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          },
+        );
+        if (!response.ok) break; // 한도 초과. 지금까지 모은 것으로 진행한다
+        items = ((await response.json()) as { items?: typeof items }).items ?? [];
+      } catch {
+        break;
+      }
+      if (items.length === 0) break;
+
+      for (const repo of items) {
+        for (const candidate of [
+          repo.homepage,
+          // `user.github.io` 저장소는 그 이름이 곧 사이트 주소다
+          repo.full_name?.split("/")[1]?.endsWith(".github.io")
+            ? `https://${repo.full_name.split("/")[1]}/`
+            : null,
+        ]) {
+          if (!candidate) continue;
+          try {
+            const url = new URL(
+              candidate.startsWith("http") ? candidate : `https://${candidate}`,
+            );
+            if (isFreeHostingHost(url.hostname)) found.add(url.toString());
+          } catch {
+            /* 설명에 적힌 주소가 깨진 경우가 흔하다 */
+          }
+        }
+      }
+      process.stderr.write(`\r  수집 ${found.size}건`);
+    }
+  }
+  process.stderr.write("\n");
+  return [...found];
+}
+
+/** corpus 단계에서만 쓰는 간이 판정. 운영 로직은 lib/scanner/hosting.ts */
+const FREE_SUFFIXES = [
+  "vercel.app", "netlify.app", "pages.dev", "workers.dev", "github.io",
+  "web.app", "firebaseapp.com", "replit.app", "onrender.com", "surge.sh",
+];
+
+function isFreeHostingHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return FREE_SUFFIXES.some(
+    (suffix) => host.endsWith(`.${suffix}`) && host !== suffix,
+  );
+}
 
 export function findSource(id: string): Source {
   const source = SOURCES.find((candidate) => candidate.id === id);
@@ -161,6 +257,16 @@ async function download(source: Source): Promise<string[]> {
   }
 
   process.stderr.write(`  ↓ ${source.name}\n`);
+
+  if (source.id === "freehost") {
+    const entries = await fetchFreeHostCorpus();
+    if (entries.length === 0) {
+      throw new Error("GitHub에서 한 건도 모으지 못했습니다 (API 한도 확인)");
+    }
+    writeFileSync(cached, entries.join("\n"), "utf8");
+    return entries;
+  }
+
   const response = await fetch(source.url, {
     headers: { "user-agent": UA },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

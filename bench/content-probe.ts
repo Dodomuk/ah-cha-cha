@@ -18,6 +18,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { findBorrowedAssets } from "./assets.ts";
 import { safeFetch } from "../lib/scanner/guard.ts";
 import { registrableDomain } from "../lib/scanner/normalize.ts";
 import { traceRedirects } from "../lib/scanner/redirect.ts";
@@ -168,6 +169,9 @@ interface Probe {
   credentialField: boolean;
   brand: string | null;
   formTarget: string | null;
+  /** 남의 도메인에서 화면 리소스를 가져오는가 */
+  borrowed: string | null;
+  borrowedCount: number;
   error?: string;
 }
 
@@ -184,6 +188,8 @@ async function probeOne(entry: CorpusEntry): Promise<Probe> {
     credentialField: false,
     brand: null,
     formTarget: null,
+    borrowed: null,
+    borrowedCount: 0,
   };
 
   // 🚨 입력 URL의 본문을 읽으면 안 된다. safeFetch는 리디렉션을 따라가지 않으므로
@@ -236,6 +242,8 @@ async function probeOne(entry: CorpusEntry): Promise<Probe> {
       credentialField: CREDENTIAL_NAME.test(html),
       brand: claimedBrand(html, hostname),
       formTarget: crossDomainForm(html, hostname),
+      borrowed: findBorrowedAssets(html, hostname)?.domain ?? null,
+      borrowedCount: findBorrowedAssets(html, hostname)?.count ?? 0,
     };
   } catch (error) {
     return {
@@ -290,6 +298,8 @@ function report(probes: Probe[], title: string): void {
     ["아이디/이메일 입력란", (p) => p.credentialField],
     ["제목에 남의 브랜드", (p) => Boolean(p.brand)],
     ["폼이 남의 도메인으로 전송", (p) => Boolean(p.formTarget)],
+    ["남의 도메인 리소스 사용", (p) => Boolean(p.borrowed)],
+    ["남의 도메인 리소스 3개 이상", (p) => p.borrowedCount >= 3],
     ["", () => false],
     ["조합 A: 무료호스팅 + 비밀번호", (p) => Boolean(p.freeHost) && p.password],
     ["조합 B: 브랜드 + 비밀번호", (p) => Boolean(p.brand) && p.password],
