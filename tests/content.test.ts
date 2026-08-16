@@ -9,7 +9,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { contentSeverity, inspectHtml } from "../lib/scanner/content.ts";
+import { pickReasons } from "../lib/scanner/explain.ts";
 import { freeHostingPlatform } from "../lib/scanner/hosting.ts";
+import type { Signal } from "../lib/scanner/types.ts";
 
 const page = (title: string, body = "") =>
   `<html><head><title>${title}</title></head><body>${body}</body></html>`;
@@ -141,4 +143,36 @@ test("무료 호스팅은 서브도메인이 있을 때만 인정한다", () => 
   // 접미사 사칭. `.evil.com`으로 끝나므로 걸리면 안 된다
   assert.equal(freeHostingPlatform("vercel.app.evil.com"), null);
   assert.equal(freeHostingPlatform("www.naver.com"), null);
+});
+
+/* ------------------------------------------------------------------ */
+/* 설명이 판정과 어긋나지 않는가                                        */
+/* ------------------------------------------------------------------ */
+
+test("no_signal 판정에서 걸린 신호를 대표 근거로 내세우지 않는다", () => {
+  // 실제로 났던 일: github.com 이 no_signal 인데 첫 근거가
+  // "이 사이트와 같은 곳에서 악성코드가 배포된 적이 있어요" 였다.
+  // 판정과 설명이 서로를 부정하면 사용자는 둘 다 믿지 않는다
+  const signals: Signal[] = [
+    { id: "S1", name: "sb", status: "clear", detail: "구글 목록에는 없었어요." },
+    {
+      id: "S3",
+      name: "malware feed",
+      status: "hit",
+      severity: "medium",
+      detail: "같은 곳에서 악성코드가 배포된 적이 있어요.",
+    },
+    { id: "S7", name: "imp", status: "clear", detail: "사칭 흔적은 없었어요." },
+  ];
+
+  const reasons = pickReasons(signals, "no_signal");
+  assert.ok(
+    !reasons[0].includes("악성코드"),
+    `첫 근거가 판정과 어긋난다: ${reasons[0]}`,
+  );
+  // 숨기지는 않는다. 뒤에는 남아 있어야 한다
+  assert.ok(reasons.some((r) => r.includes("악성코드")));
+
+  // danger 일 때는 그대로 맨 앞이다
+  assert.ok(pickReasons(signals, "danger")[0].includes("악성코드"));
 });

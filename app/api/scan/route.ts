@@ -14,7 +14,7 @@ import {
   readCachedScan,
   writeCachedScan,
 } from "@/lib/scanner/cache";
-import { explainWithClaude } from "@/lib/scanner/claude";
+import { explainWithClaude, needsGeneratedProse } from "@/lib/scanner/claude";
 import { buildFallbackExplanation } from "@/lib/scanner/explain";
 import { normalizeUrl, urlHash } from "@/lib/scanner/normalize";
 import { persistScan } from "@/lib/scanner/persist";
@@ -87,8 +87,14 @@ export async function POST(request: Request) {
     }
 
     const result = await scan(parsed.data.url);
+
+    // 위험 판정에만 LLM을 부른다. 나머지는 템플릿으로 즉시 내려간다 —
+    // 이유는 claude.ts 의 needsGeneratedProse 주석 참조.
+    // 어느 쪽이든 실패하면 템플릿이 받는다. 설명이 없다고 판정을 못 주지 않는다
     const explanation =
-      (await explainWithClaude(result)) ?? buildFallbackExplanation(result);
+      (needsGeneratedProse(result.verdict)
+        ? await explainWithClaude(result)
+        : null) ?? buildFallbackExplanation(result);
     const response: ScanResponse = { ...result, explanation };
 
     // 캐시 기록과 DB 저장은 응답을 붙잡지 않는다

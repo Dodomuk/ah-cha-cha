@@ -12,7 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { hostnameOf, maskDomain } from "../display";
-import type { Explanation, ScanResult, Signal } from "./types";
+import type { Explanation, ScanResult, Signal, Verdict } from "./types";
 import { VERDICT_LABEL } from "./verdict";
 
 /** 사용자가 선택한 모델. 시그널을 문장으로 옮기는 작업이라 추론 부담이 적다 */
@@ -42,6 +42,11 @@ const SYSTEM_PROMPT = `너는 '아차차'라는 링크 검사 서비스의 설�
   무엇이 위험한지 직설적으로 쓴다.
 - 판정이 no_signal이어도 "안전합니다"라고 단정하지 마라.
   "지금 확인한 범위에서는 위험 신호가 없었어요" 수준으로만 쓴다.
+- headline은 판정과 어긋나면 안 된다. 판정이 no_signal인데 headline에 위험을
+  단정하는 문장을 쓰지 마라. 신호 중에 걸린 것이 섞여 있어도, 판정이
+  no_signal이라는 것은 그것만으로는 위험으로 보지 않기로 이미 결정했다는 뜻이다.
+  그런 신호는 reasons 뒤쪽에 "다만 ~한 기록은 있어요" 정도로만 덧붙여라.
+  headline은 판정 자체를 말하는 자리다.
 - action은 사용자를 안심시키는 자리가 아니다. 방문을 권하거나 보증하지 마라.
   "평소처럼 이용해도 괜찮아요", "방문해도 됩니다", "안심하세요" 같은 문장은 금지다.
   위험 신호가 없을 때도 사용자가 스스로 확인할 것을 하나 알려줘라
@@ -92,6 +97,28 @@ function anthropic(): Anthropic | null {
 
 export function claudeConfigured(): boolean {
   return anthropic() !== null;
+}
+
+/**
+ * 이 판정에 LLM 설명이 필요한가.
+ *
+ * 🚨 위험 판정에만 부른다. 실측(2026-08-16)이 근거다.
+ *
+ *    응답 시간의 77~92%를 Claude가 쓴다 — 검사는 0.2~0.6초에 끝나는데
+ *    설명 생성에 2초 안팎이 더 든다.
+ *
+ *    그런데 그 2초로 얻는 것이 판정마다 다르다.
+ *      danger    "이 링크는 누르면 안 돼요"(템플릿) →
+ *                "KB국민은행 이름을 도용한 사이트입니다"(Claude)
+ *                무엇이 위험한지 헤드라인에 담긴다. 겁먹은 사람에게 실제로 낫다.
+ *      no_signal 두 결과가 사실상 같다. 2초와 비용만 쓴다.
+ *
+ *    부수 효과가 하나 더 있다. LLM이 규칙을 어긴 사례가 지금까지 셋이다
+ *    (보증하는 문구, 주소 원문 노출, 판정과 어긋나는 헤드라인). 호출을
+ *    위험 화면으로 좁히면 그 표면도 같이 좁아진다.
+ */
+export function needsGeneratedProse(verdict: Verdict): boolean {
+  return verdict === "danger" || verdict === "caution";
 }
 
 /**
