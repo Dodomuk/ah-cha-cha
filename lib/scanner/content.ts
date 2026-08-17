@@ -242,13 +242,22 @@ export function inspectHtml(html: string, hostname: string): ContentFinding {
  */
 export function contentSeverity(
   finding: ContentFinding,
-  context: { newDomain: boolean },
+  context: { newDomain: boolean; disposableDomain?: boolean },
 ): "critical" | "high" | "medium" | undefined {
   if (finding.status !== "hit") return undefined;
 
   if (finding.claimedBrand) {
     // 확인되지 않은 브랜드는 danger 까지 올리지 않는다 (S7의 capConfidence와 같은 이유)
-    const corroborated = Boolean(finding.freeHost) || context.newDomain;
+    //
+    // "정상 사업자로 보기 어려운 정황"이 하나라도 있어야 danger 로 간다.
+    // 셋 다 같은 것을 가리킨다 — 이 자리는 오래 쓸 자리가 아니다.
+    //   무료 호스팅   남의 플랫폼에서 얻은 임시 자리
+    //   신규 도메인   갓 만들었다
+    //   일회용 형태   기계가 찍어낸 이름 (S12)
+    const corroborated =
+      Boolean(finding.freeHost) ||
+      context.newDomain ||
+      Boolean(context.disposableDomain);
     return corroborated && finding.claimedBrand.verified ? "critical" : "high";
   }
 

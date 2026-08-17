@@ -15,6 +15,7 @@ import { lookupDomainAge } from "./rdap";
 import { describeReports, lookupReportCount } from "./reports";
 import { detectApkDelivery, traceRedirects } from "./redirect";
 import { checkSafeBrowsing, describeThreat } from "./safebrowsing";
+import { inspectDomainShape } from "./shape";
 import type { DomainAge, ScanResult, Signal } from "./types";
 import { NEW_DOMAIN_DAYS, decideVerdict } from "./verdict";
 
@@ -27,8 +28,41 @@ const PENDING_SIGNALS: Array<Pick<Signal, "id" | "name" | "detail">> = [
   { id: "S10", name: "multi-engine scan", detail: "백신 다중 검사는 아직 준비 중이에요." },
 ];
 
+/**
+ * 검사 하나의 전체 상한.
+ *
+ * 🚨 구성요소마다 자기 타임아웃이 있는데, 그게 **합산**된다는 것이 문제였다.
+ *    DNS 3초 + 홉당 6초(체인 예산 10초) + 본문 6초 + RDAP 4초×2 + 구글 4초.
+ *    각자는 짧은데 다 더하면 30초를 넘는다.
+ *
+ *    실측(2026-08-17): 이미 내려간 스미싱 URL 80건에서 소요 중앙값 30.6초,
+ *    p95 45초가 나왔다. 스미싱은 대개 단축 URL로 오고 목적지는 이미 죽어 있어
+ *    **가장 흔한 경로가 가장 느렸다.**
+ *
+ *    여기서 전체를 한 번 더 묶는다. 예산을 넘긴 조회는 "확인 못 함"으로
+ *    내려간다 — 판정을 못 내는 것보다 낫다. 확인 못 한 것을 clear로
+ *    바꿔치기하지 않는 한, 부분 결과는 정직한 결과다.
+ */
+export const SCAN_BUDGET_MS = 20_000;
+
+/**
+ * 남은 예산 안에 끝나지 않으면 준비된 대체값으로 넘어간다.
+ * 실패도 같은 대체값으로 받는다 — 조회 하나가 검사 전체를 무너뜨리지 않는다.
+ */
+function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  if (ms <= 0) return Promise.resolve(fallback);
+  let timer: NodeJS.Timeout;
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 export async function scan(rawUrl: string): Promise<ScanResult> {
   const startedAt = Date.now();
+  const deadline = startedAt + SCAN_BUDGET_MS;
 
   const normalized = normalizeUrl(rawUrl);
   // DNS 조회 전에 스킴·형식 문제를 먼저 튕겨낸다
@@ -47,30 +81,50 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
   const chainUrls = chain.hops.map((hop) => hop.url);
   if (chainUrls.length === 0) chainUrls.push(normalized);
 
+  // 체인 추적에 이미 쓴 시간을 빼고 남은 예산으로 나머지를 돌린다
+  const left = deadline - Date.now();
+  const noAge: DomainAge = {
+    domain: finalHostname,
+    registeredAt: null,
+    ageDays: null,
+    registrar: null,
+    source: "none",
+  };
+  const noFeed: FeedLookup = {
+    status: "unavailable",
+    match: null,
+    source: null,
+    syncedAt: null,
+  };
+
   const [domainAge, safeBrowsing, phishFeed, malwareFeed, content, reports] =
     await Promise.all([
-      lookupDomainAge(finalHostname).catch(
-        (): DomainAge => ({
-          domain: finalHostname,
-          registeredAt: null,
-          ageDays: null,
-          registrar: null,
-          source: "none",
-        }),
-      ),
-      checkSafeBrowsing(chainUrls),
-      lookupFeed("openphish", chainUrls),
-      lookupFeed("urlhaus", chainUrls),
+      within(lookupDomainAge(finalHostname), left, noAge),
+      within(checkSafeBrowsing(chainUrls), left, {
+        status: "unavailable" as const,
+        threatTypes: [],
+      }),
+      within(lookupFeed("openphish", chainUrls), left, noFeed),
+      within(lookupFeed("urlhaus", chainUrls), left, noFeed),
       // 본문 검사는 요청을 하나 더 쓴다. 다른 조회들과 나란히 돌려서
       // 8초 목표(prd.md 9)에 얹히는 시간이 없도록 한다.
       // 체인 추적이 실패했으면 읽을 페이지가 없으므로 건너뛴다
       chain.error || chain.hops.length === 0
         ? Promise.resolve(null)
-        : inspectContent(chain.finalUrl, chain.finalContentType),
-      lookupReportCount(finalHostname),
+        : within(
+            inspectContent(chain.finalUrl, chain.finalContentType),
+            left,
+            null,
+          ),
+      within(lookupReportCount(finalHostname), left, {
+        status: "unavailable" as const,
+        count: 0,
+        reviewed: false,
+      }),
     ]);
 
   const apk = detectApkDelivery(chain);
+  const shape = inspectDomainShape(finalHostname);
 
   const signals: Signal[] = [];
 
@@ -227,12 +281,29 @@ export async function scan(rawUrl: string): Promise<ScanResult> {
     name: "credential harvesting page",
     status: content?.status ?? "unavailable",
     severity: content
-      ? contentSeverity(content, { newDomain: isNew })
+      ? contentSeverity(content, {
+          newDomain: isNew,
+          disposableDomain: shape.disposable,
+        })
       : undefined,
     detail:
       content?.detail ??
       "사이트에 접속하지 못해 페이지 내용은 확인하지 못했어요.",
     raw: content,
+  });
+
+  // S12 — 일회용 도메인 형태. 대량으로 사서 한 번 쓰고 버리는 도메인은 이름을
+  //       기계가 짓는다(aw1y.bar). 단독으로는 판정을 올리지 않는다 —
+  //       정상 도메인의 0.2%도 같은 모양이다. shape.ts 주석 참조
+  signals.push({
+    id: "S12",
+    name: "disposable domain shape",
+    status: shape.disposable ? "hit" : "clear",
+    severity: shape.disposable ? "medium" : undefined,
+    detail: shape.disposable
+      ? "주소 이름이 사람이 지은 것이 아니라 기계가 찍어낸 모양이에요. 한 번 쓰고 버리는 주소에서 흔합니다."
+      : "주소 이름은 특별히 수상한 모양이 아니에요.",
+    raw: shape,
   });
 
   // S9 — 사용자 신고. 표시 전용이며 판정에 반영하지 않는다 (CLAUDE.md 규칙 8).
