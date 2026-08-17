@@ -59,8 +59,10 @@ class CookieJar {
 
 const MAX_HOPS = 10;
 /** 체인 전체 예산. prd.md 9의 "8초 이내" 목표에서 역산 */
-const TOTAL_BUDGET_MS = 12_000;
+const TOTAL_BUDGET_MS = 10_000;
 const PER_HOP_TIMEOUT_MS = 6_000;
+/** 홉마다 DNS에 쓸 수 있는 시간. 남은 예산이 더 적으면 그쪽을 따른다 */
+const DNS_BUDGET_MS = 3_000;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -97,9 +99,13 @@ export async function traceRedirects(startUrl: string): Promise<RedirectResult> 
 
     let response;
     try {
+      // 🚨 남은 예산을 DNS와 fetch에 **함께** 걸어야 한다. DNS 상한을 안 넘기면
+      //    홉마다 3초가 예산 밖에서 더 붙어, 전체 예산이 있으나 마나가 된다
+      const left = deadline - Date.now();
       response = await safeFetch(current, {
         method: "GET",
-        timeoutMs: Math.min(PER_HOP_TIMEOUT_MS, deadline - Date.now()),
+        timeoutMs: Math.min(PER_HOP_TIMEOUT_MS, left),
+        dnsTimeoutMs: Math.min(DNS_BUDGET_MS, left),
         // 최종 목적지에서만 본문을 읽는다. 중간 홉 본문은 쓸 데가 없다
         readBody: false,
         cookie: jar.headerFor(current),

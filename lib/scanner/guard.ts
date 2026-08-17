@@ -142,12 +142,53 @@ export interface ResolvedHost {
 }
 
 /**
+ * DNS 조회 상한.
+ *
+ * 🚨 `node:dns`의 lookup(getaddrinfo)에는 타임아웃이 없다. OS 리졸버에
+ *    맡기는데, 없는 도메인은 재시도를 반복하며 수십 초를 쓴다.
+ *
+ *    실측(2026-08-17): 이미 내려간 스미싱 도메인 80건을 검사했더니
+ *    소요 중앙값이 30.6초, p95가 45초였다. 살아 있는 사이트(Tranco)는
+ *    2.5초였다. 스미싱 링크는 대개 이미 죽어 있으므로
+ *    **실사용에서 가장 흔한 경로가 가장 느렸다.**
+ *
+ *    살아 있는 도메인은 0.5초 안에 풀린다. 3초를 넘기면 사실상 없는 주소다.
+ */
+const DNS_TIMEOUT_MS = 3_000;
+
+function withDnsTimeout<T>(
+  promise: Promise<T>,
+  hostname: string,
+  ms: number,
+): Promise<T> {
+  let timer: NodeJS.Timeout;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new GuardError(
+              `dns lookup timed out: ${hostname}`,
+              "이 주소를 찾을 수 없어요. 사이트가 이미 사라졌을 수도 있어요.",
+            ),
+          ),
+        Math.max(1, ms),
+      );
+    }),
+  ]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+/**
  * 호스트명을 해석하고 모든 결과 IP를 검증한다.
  *
  * 하나라도 차단 대역이면 전체를 거부한다 — 일부만 공인 IP인 응답은
  * rebinding 공격의 전형적인 형태이므로 보수적으로 막는다.
  */
-export async function resolveAndVerify(hostname: string): Promise<ResolvedHost> {
+export async function resolveAndVerify(
+  hostname: string,
+  dnsTimeoutMs: number = DNS_TIMEOUT_MS,
+): Promise<ResolvedHost> {
   const literal = isIP(hostname);
   if (literal) {
     if (isBlockedIp(hostname)) {
@@ -161,8 +202,13 @@ export async function resolveAndVerify(hostname: string): Promise<ResolvedHost> 
 
   let records: Array<{ address: string; family: number }>;
   try {
-    records = await dnsLookup(hostname, { all: true, verbatim: true });
-  } catch {
+    records = await withDnsTimeout(
+      dnsLookup(hostname, { all: true, verbatim: true }),
+      hostname,
+      dnsTimeoutMs,
+    );
+  } catch (error) {
+    if (error instanceof GuardError) throw error;
     throw new GuardError(
       `dns lookup failed: ${hostname}`,
       "이 주소를 찾을 수 없어요. 사이트가 이미 사라졌을 수도 있어요.",
@@ -248,6 +294,11 @@ export interface SafeFetchOptions {
   /** `name=value; name2=value2` 형태. 호출부가 스코프를 책임진다 */
   cookie?: string;
   /**
+   * DNS 조회 상한. 호출부가 남은 예산에 맞춰 줄일 수 있다.
+   * 이걸 안 넘기면 홉마다 DNS 3초가 통째로 더 붙어 체인 예산이 새어나간다.
+   */
+  dnsTimeoutMs?: number;
+  /**
    * User-Agent를 바꾼다. 기본값은 자신을 봇이라고 밝히는 문자열이다.
    *
    * 피싱 키트는 봇으로 보이는 요청에 정상 페이지를 대신 내주는 클로킹을
@@ -292,10 +343,11 @@ export async function safeFetch(
     maxBodyBytes = MAX_BODY_BYTES,
     cookie,
     userAgent = USER_AGENT,
+    dnsTimeoutMs,
   } = options;
 
   const url = assertScannableUrl(rawUrl);
-  const resolved = await resolveAndVerify(url.hostname);
+  const resolved = await resolveAndVerify(url.hostname, dnsTimeoutMs);
 
   // 검증된 주소만 반환하는 lookup. undici가 커넥션을 맺을 때 이 값을 쓴다.
   const pinnedLookup = (
