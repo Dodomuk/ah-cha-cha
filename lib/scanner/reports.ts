@@ -87,3 +87,51 @@ export function describeReports(tally: ReportTally): string {
     : "아직 관리자가 확인하기 전이에요.";
   return `이 사이트를 위험하다고 신고한 사람이 ${tally.count}명 있어요. ${reviewed}`;
 }
+
+/* ------------------------------------------------------------------ */
+/* 신고 기록                                                            */
+/* ------------------------------------------------------------------ */
+
+/** reports 테이블의 category 와 같은 값이어야 한다 */
+export type ReportCategory =
+  | "phishing"
+  | "malware_app"
+  | "scam_shop"
+  | "gambling"
+  | "spam"
+  | "false_positive";
+
+export type ReportOutcome = "ok" | "duplicate" | "failed";
+
+/**
+ * 신고 한 건을 남긴다.
+ *
+ * 🚨 오탐 신고(false_positive)도 같은 자리에 남는다. 다만 report_count 는
+ *    올라가지 않는다 — DB 트리거가 걸러낸다. "위험하다는 신고 수"에
+ *    "안전하다는 주장"을 같이 세면 숫자가 뒤집히기 때문이다.
+ *
+ * @param reporterHash 같은 사람의 중복 신고만 걸러내기 위한 값.
+ *   웹은 IP 해시, 카카오톡은 botUserKey 해시를 넣는다. 원본은 저장하지 않는다.
+ */
+export async function recordReport(input: {
+  domainId: string;
+  category: ReportCategory;
+  reporterHash: string;
+  description?: string | null;
+}): Promise<ReportOutcome> {
+  const store = db();
+  if (!store) return "failed";
+
+  const { error } = await store.from("reports").insert({
+    domain_id: input.domainId,
+    category: input.category,
+    description: input.description ?? null,
+    reporter_ip_hash: input.reporterHash,
+  });
+
+  if (!error) return "ok";
+  // 23505 = 유니크 위반. 이미 신고한 도메인이다
+  if (error.code === "23505") return "duplicate";
+  console.error("[reports] 신고 저장 실패:", error.message);
+  return "failed";
+}

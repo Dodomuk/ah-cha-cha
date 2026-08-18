@@ -39,13 +39,85 @@ export function pendingReply(text: string) {
   return { version: "2.0", useCallback: true, data: { text } };
 }
 
+/** 사용자가 누르면 그 문구를 발화로 다시 보내주는 버튼 */
+export interface QuickReply {
+  label: string;
+  action: "message";
+  messageText: string;
+}
+
 /** 최종 응답 — 콜백으로 POST하거나, 빠르게 끝났으면 그대로 반환한다 */
-export function textReply(text: string) {
+export function textReply(text: string, quickReplies?: QuickReply[]) {
   return {
     version: "2.0",
-    template: { outputs: [{ simpleText: { text } }] },
+    template: {
+      outputs: [{ simpleText: { text } }],
+      ...(quickReplies?.length ? { quickReplies } : {}),
+    },
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* 결과가 틀렸다고 알려주는 버튼                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 판정 아래 붙는 버튼 두 개.
+ *
+ * 양방향으로 받는 것이 중요하다. 미탐(우리가 놓친 것)과 오탐(멀쩡한 곳을
+ * 위험이라 한 것) **둘 다** 우리가 스스로는 찾을 수 없는 정보다.
+ * 특히 오탐은 미탐보다 비싸다(CLAUDE.md 규칙 11) — 그런데 오탐일수록
+ * 사용자가 알려주지 않으면 영영 모른다.
+ */
+export const REPORT_PHISHING_TEXT = "🚨 이거 피싱이에요";
+export const REPORT_SAFE_TEXT = "✅ 정상 사이트예요";
+
+export function feedbackButtons(): QuickReply[] {
+  return [
+    { label: REPORT_PHISHING_TEXT, action: "message", messageText: REPORT_PHISHING_TEXT },
+    { label: REPORT_SAFE_TEXT, action: "message", messageText: REPORT_SAFE_TEXT },
+  ];
+}
+
+/**
+ * 버튼을 눌러서 온 발화인가.
+ *
+ * 버튼 문구를 그대로 돌려받지만, 손으로 "신고"라고 치는 사람도 받아준다.
+ * 판단은 주소 추출보다 **먼저** 해야 한다 — 이 발화에는 주소가 없어서
+ * 그냥 두면 "주소를 찾지 못했어요"로 빠진다.
+ */
+export function feedbackIntent(
+  utterance: string,
+): "phishing" | "false_positive" | null {
+  const text = utterance.trim();
+  if (text === REPORT_PHISHING_TEXT || /^(신고|신고하기|피싱이에요|피싱)$/.test(text)) {
+    return "phishing";
+  }
+  if (text === REPORT_SAFE_TEXT || /^(정상|정상이에요|정상 사이트예요|괜찮아요)$/.test(text)) {
+    return "false_positive";
+  }
+  return null;
+}
+
+export const FEEDBACK_MESSAGES = {
+  thanksPhishing: [
+    "알려주셔서 고마워요. 신고로 남겼습니다.",
+    "",
+    "차차가 놓친 것을 사람이 잡아준 거예요. 이런 제보가 검사 실력을 키웁니다.",
+  ].join("\n"),
+  thanksSafe: [
+    "알려주셔서 고마워요. 잘못 본 것으로 접수했습니다.",
+    "",
+    "멀쩡한 곳을 위험하다고 하는 게 못 잡는 것보다 더 큰 잘못이에요. 확인해서 고치겠습니다.",
+  ].join("\n"),
+  duplicate: "이미 알려주신 사이트예요. 확인하고 있습니다.",
+  expired: [
+    "어떤 검사에 대한 말씀인지 찾지 못했어요.",
+    "",
+    "검사 결과를 받은 뒤 10분 안에 눌러주셔야 해요. 주소를 다시 보내주시겠어요?",
+  ].join("\n"),
+  failed: "지금은 접수하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+} as const;
 
 /* ------------------------------------------------------------------ */
 /* 발화에서 주소 뽑기                                                    */

@@ -8,7 +8,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { extractUrl, resultMessage, textReply } from "../lib/kakao.ts";
+import {
+  extractUrl,
+  feedbackButtons,
+  feedbackIntent,
+  REPORT_PHISHING_TEXT,
+  REPORT_SAFE_TEXT,
+  resultMessage,
+  textReply,
+} from "../lib/kakao.ts";
 import type { Explanation, ScanResult } from "../lib/scanner/types.ts";
 
 test("스킴 없는 한국식 단축 주소를 뽑는다", () => {
@@ -86,4 +94,43 @@ test("응답 형식이 카카오 스킬 규격을 따른다", () => {
   const reply = textReply("안녕");
   assert.equal(reply.version, "2.0");
   assert.equal(reply.template.outputs[0].simpleText.text, "안녕");
+});
+
+/* ------------------------------------------------------------------ */
+/* 결과가 틀렸다고 알려주는 버튼                                          */
+/* ------------------------------------------------------------------ */
+
+test("버튼 문구를 그대로 돌려받으면 제보로 알아본다", () => {
+  assert.equal(feedbackIntent(REPORT_PHISHING_TEXT), "phishing");
+  assert.equal(feedbackIntent(REPORT_SAFE_TEXT), "false_positive");
+});
+
+test("손으로 친 말도 받아준다", () => {
+  assert.equal(feedbackIntent("신고"), "phishing");
+  assert.equal(feedbackIntent("  피싱  "), "phishing");
+  assert.equal(feedbackIntent("정상"), "false_positive");
+});
+
+test("주소가 든 발화를 제보로 오인하지 않는다", () => {
+  // 제보 판단이 주소 추출보다 먼저 돌기 때문에, 여기서 잘못 잡으면
+  // 검사 요청이 통째로 제보로 빠진다
+  assert.equal(feedbackIntent("신고합니다 abc.kr/x1"), null);
+  assert.equal(feedbackIntent("[Web발신] 피싱 주의 안내 buly.kr/aB"), null);
+  assert.equal(feedbackIntent("www.google.com"), null);
+});
+
+test("판정 결과에는 양방향 버튼이 함께 나간다", () => {
+  // 미탐(놓친 것)과 오탐(멀쩡한 곳을 위험이라 한 것) 둘 다 받아야 한다.
+  // 오탐은 미탐보다 비싼데(규칙 11) 사용자가 알려주지 않으면 영영 모른다
+  const reply = textReply("결과입니다", feedbackButtons());
+  const labels = reply.template.quickReplies?.map((q) => q.label) ?? [];
+  assert.equal(labels.length, 2);
+  assert.ok(labels.some((l) => l.includes("피싱")));
+  assert.ok(labels.some((l) => l.includes("정상")));
+});
+
+test("버튼이 없으면 quickReplies 자체를 넣지 않는다", () => {
+  // 빈 배열을 보내면 카카오가 빈 버튼 줄을 그린다
+  assert.equal("quickReplies" in textReply("안녕").template, false);
+  assert.equal("quickReplies" in textReply("안녕", []).template, false);
 });

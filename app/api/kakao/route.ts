@@ -14,8 +14,13 @@
 
 import { after, NextResponse } from "next/server";
 
+import { createHash } from "node:crypto";
+
 import {
   extractUrl,
+  feedbackButtons,
+  feedbackIntent,
+  FEEDBACK_MESSAGES,
   GUIDE_MESSAGE,
   NO_URL_MESSAGE,
   pendingReply,
@@ -23,11 +28,13 @@ import {
   textReply,
   type KakaoSkillRequest,
 } from "@/lib/kakao";
+import { redis } from "@/lib/redis";
 import { rateLimit } from "@/lib/ratelimit";
 import { GuardError, scan } from "@/lib/scanner";
 import { readCachedScan, writeCachedScan } from "@/lib/scanner/cache";
 import { normalizeUrl, urlHash } from "@/lib/scanner/normalize";
-import { persistScan } from "@/lib/scanner/persist";
+import { ensureDomain, persistScan } from "@/lib/scanner/persist";
+import { recordReport } from "@/lib/scanner/reports";
 import type { ScanResponse } from "@/lib/scanner/types";
 import { needsGeneratedProse, explainWithClaude } from "@/lib/scanner/claude";
 import { buildFallbackExplanation } from "@/lib/scanner/explain";
@@ -40,6 +47,23 @@ export const maxDuration = 60;
 /** 한 사람이 분당 이 횟수를 넘기면 막는다 */
 const LIMIT = 10;
 const WINDOW_MS = 60_000;
+
+/**
+ * 방금 검사한 것을 잠깐 기억한다. 버튼을 눌렀을 때 "무엇에 대한 제보인가"를
+ * 알아야 하기 때문이다.
+ *
+ * 🚨 여기 담는 것은 **최종 도착지 호스트뿐**이다. 사용자가 보낸 문장은 담지
+ *    않는다. 10분이면 버튼을 누르기에 충분하고, 그 뒤엔 사라진다.
+ */
+const LAST_SCAN_TTL_SECONDS = 600;
+const lastScanKey = (userKey: string) => `kakao:last:${userKey}`;
+
+/** 같은 사람의 중복 신고만 걸러내기 위한 값. 원본 키는 저장하지 않는다 */
+function reporterHash(userKey: string): string {
+  return createHash("sha256")
+    .update(`kakao:${userKey}:${process.env.CRON_SECRET ?? "salt"}`)
+    .digest("hex");
+}
 
 export async function POST(request: Request) {
   const secret = process.env.KAKAO_SKILL_SECRET;
@@ -72,6 +96,13 @@ export async function POST(request: Request) {
     );
   }
 
+  // 🚨 버튼 판단을 주소 추출보다 먼저 한다. 버튼 발화에는 주소가 없어서
+  //    순서를 바꾸면 "주소를 찾지 못했어요"로 빠진다
+  const feedback = feedbackIntent(utterance);
+  if (feedback) {
+    return NextResponse.json(textReply(await handleFeedback(userKey, feedback)));
+  }
+
   // 🚨 발화 전체를 쓰지 않는다. 주소만 뽑아 쓰고 나머지는 버린다 —
   //    문자에는 이름·금액 같은 개인적인 맥락이 그대로 실려 있다
   const target = extractUrl(utterance);
@@ -89,12 +120,12 @@ export async function POST(request: Request) {
 
   // 응답을 먼저 돌려주고 검사는 뒤에서 계속한다
   after(async () => {
-    const text = await runScan(target);
+    const text = await runScan(target, userKey);
     try {
       const response = await fetch(callbackUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(textReply(text)),
+        body: JSON.stringify(textReply(text, feedbackButtons())),
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) {
@@ -121,7 +152,7 @@ export async function POST(request: Request) {
  *    모으는 것인데(prd.md 0.1절) 정작 들어온 것을 안 남긴 셈이다.
  *    캐시도 없어서 같은 스미싱을 열 명이 보내면 열 번 다시 검사했다.
  */
-async function runScan(target: string): Promise<string> {
+async function runScan(target: string, userKey: string): Promise<string> {
   try {
     // 캐시부터 본다. 스미싱은 같은 주소가 수천 명에게 동시에 뿌려지므로
     // 캐시 적중률이 웹보다 높다
@@ -135,7 +166,10 @@ async function runScan(target: string): Promise<string> {
       const cached = await readCachedScan(hash);
       // 캐시 결과라는 사실을 숨기지 않는다. resultMessage 가 검사 시각을
       // 함께 적으므로, 사용자는 이게 방금 확인한 것인지 알 수 있다
-      if (cached) return resultMessage(cached, cached.explanation);
+      if (cached) {
+        await remember(userKey, cached.finalUrl, cached.verdict);
+        return resultMessage(cached, cached.explanation);
+      }
     }
 
     const result = await scan(target);
@@ -149,6 +183,7 @@ async function runScan(target: string): Promise<string> {
     // 원문 보관은 danger/caution 만 — persistScan 과 DB 제약이 함께 강제한다
     await writeCachedScan(response).catch(() => {});
     await persistScan(response).catch(() => {});
+    await remember(userKey, result.finalUrl, result.verdict);
 
     return resultMessage(result, explanation);
   } catch (error) {
@@ -159,4 +194,67 @@ async function runScan(target: string): Promise<string> {
     );
     return "검사 중 문제가 생겼어요. 잠시 뒤 다시 보내주세요.";
   }
+}
+
+/** 버튼을 눌렀을 때 무엇에 대한 제보인지 알 수 있도록 잠깐 기억한다 */
+async function remember(
+  userKey: string,
+  finalUrl: string,
+  verdict: string,
+): Promise<void> {
+  const store = redis();
+  if (!store) return;
+  try {
+    const hostname = new URL(finalUrl).hostname;
+    await store.set(
+      lastScanKey(userKey),
+      { hostname, verdict },
+      { ex: LAST_SCAN_TTL_SECONDS },
+    );
+  } catch {
+    /* 기억하지 못해도 검사 자체는 이미 끝났다 */
+  }
+}
+
+/**
+ * "이거 피싱이에요" / "정상 사이트예요" 버튼 처리.
+ *
+ * 웹 신고와 같은 곳에 남는다. 다만 Turnstile 대신 카카오가 식별한
+ * botUserKey 를 쓴다 — 익명 웹 사용자보다 오히려 확실한 신원이다.
+ */
+async function handleFeedback(
+  userKey: string,
+  kind: "phishing" | "false_positive",
+): Promise<string> {
+  const store = redis();
+  if (!store) return FEEDBACK_MESSAGES.failed;
+
+  let last: { hostname: string; verdict: string } | null = null;
+  try {
+    last = await store.get<{ hostname: string; verdict: string }>(
+      lastScanKey(userKey),
+    );
+  } catch {
+    return FEEDBACK_MESSAGES.failed;
+  }
+  if (!last) return FEEDBACK_MESSAGES.expired;
+
+  // 판정을 함께 남긴다. "엔진은 no_signal 인데 사용자는 피싱이라 한다"는
+  // 불일치가 관리자 큐에서 보여야 한다 (prd.md 0.1절)
+  const domainId = await ensureDomain(last.hostname, {
+    current_verdict: last.verdict,
+  });
+  if (!domainId) return FEEDBACK_MESSAGES.failed;
+
+  const outcome = await recordReport({
+    domainId,
+    category: kind,
+    reporterHash: reporterHash(userKey),
+  });
+
+  if (outcome === "duplicate") return FEEDBACK_MESSAGES.duplicate;
+  if (outcome === "failed") return FEEDBACK_MESSAGES.failed;
+  return kind === "phishing"
+    ? FEEDBACK_MESSAGES.thanksPhishing
+    : FEEDBACK_MESSAGES.thanksSafe;
 }
