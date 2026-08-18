@@ -25,6 +25,10 @@ import {
 } from "@/lib/kakao";
 import { rateLimit } from "@/lib/ratelimit";
 import { GuardError, scan } from "@/lib/scanner";
+import { readCachedScan, writeCachedScan } from "@/lib/scanner/cache";
+import { normalizeUrl, urlHash } from "@/lib/scanner/normalize";
+import { persistScan } from "@/lib/scanner/persist";
+import type { ScanResponse } from "@/lib/scanner/types";
 import { needsGeneratedProse, explainWithClaude } from "@/lib/scanner/claude";
 import { buildFallbackExplanation } from "@/lib/scanner/explain";
 
@@ -109,14 +113,43 @@ export async function POST(request: Request) {
   );
 }
 
-/** 검사해서 답장 문구까지 만든다. 어떤 실패든 사용자에게 문장을 돌려준다 */
+/**
+ * 검사해서 답장 문구까지 만든다. 어떤 실패든 사용자에게 문장을 돌려준다.
+ *
+ * 🚨 웹 라우트와 같은 저장 정책을 따른다. 처음에 이걸 빠뜨려서 카톡으로 들어온
+ *    검사가 통째로 버려지고 있었다 — 채널을 만든 이유가 살아 있는 한국어 표본을
+ *    모으는 것인데(prd.md 0.1절) 정작 들어온 것을 안 남긴 셈이다.
+ *    캐시도 없어서 같은 스미싱을 열 명이 보내면 열 번 다시 검사했다.
+ */
 async function runScan(target: string): Promise<string> {
   try {
+    // 캐시부터 본다. 스미싱은 같은 주소가 수천 명에게 동시에 뿌려지므로
+    // 캐시 적중률이 웹보다 높다
+    let hash: string | null = null;
+    try {
+      hash = urlHash(normalizeUrl(target));
+    } catch {
+      /* 정규화 실패는 아래 scan()이 제대로 된 오류를 낸다 */
+    }
+    if (hash) {
+      const cached = await readCachedScan(hash);
+      // 캐시 결과라는 사실을 숨기지 않는다. resultMessage 가 검사 시각을
+      // 함께 적으므로, 사용자는 이게 방금 확인한 것인지 알 수 있다
+      if (cached) return resultMessage(cached, cached.explanation);
+    }
+
     const result = await scan(target);
     const explanation =
       (needsGeneratedProse(result.verdict)
         ? await explainWithClaude(result)
         : null) ?? buildFallbackExplanation(result);
+    const response: ScanResponse = { ...result, explanation };
+
+    // 답장을 만든 뒤에 남긴다. 저장이 실패해도 사용자는 답을 받아야 한다.
+    // 원문 보관은 danger/caution 만 — persistScan 과 DB 제약이 함께 강제한다
+    await writeCachedScan(response).catch(() => {});
+    await persistScan(response).catch(() => {});
+
     return resultMessage(result, explanation);
   } catch (error) {
     if (error instanceof GuardError) return error.userMessage;
