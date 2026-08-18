@@ -10,7 +10,7 @@ import type { Explanation, ScanResult, Signal, Verdict } from "./types";
 export type { Verdict };
 import { VERDICT_HEADLINE } from "./verdict";
 
-const ACTION: Record<Verdict, string> = {
+export const ACTION: Record<Verdict, string> = {
   danger:
     "링크를 누르지 말고 지웠다가, 혹시 이미 정보를 입력했다면 금융감독원 1332로 신고하세요.",
   caution: "꼭 필요한 곳이 아니라면 개인정보나 결제정보를 넣지 마세요.",

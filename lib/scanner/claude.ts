@@ -13,6 +13,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { hostnameOf, maskDomain } from "../display";
 import type { Explanation, ScanResult, Signal, Verdict } from "./types";
+import { ACTION } from "./explain";
 import { VERDICT_LABEL } from "./verdict";
 
 /** 사용자가 선택한 모델. 시그널을 문장으로 옮기는 작업이라 추론 부담이 적다 */
@@ -47,6 +48,8 @@ const SYSTEM_PROMPT = `너는 '아차차'라는 링크 검사 서비스의 설�
   no_signal이라는 것은 그것만으로는 위험으로 보지 않기로 이미 결정했다는 뜻이다.
   그런 신호는 reasons 뒤쪽에 "다만 ~한 기록은 있어요" 정도로만 덧붙여라.
   headline은 판정 자체를 말하는 자리다.
+- 판정이 danger이면 action에 조건부 허용을 쓰지 마라. "확인한 뒤에 로그인하세요",
+  "주의해서 이용하세요" 같은 문장은 금지다. 누르지 말라고만 해라.
 - action은 사용자를 안심시키는 자리가 아니다. 방문을 권하거나 보증하지 마라.
   "평소처럼 이용해도 괜찮아요", "방문해도 됩니다", "안심하세요" 같은 문장은 금지다.
   위험 신호가 없을 때도 사용자가 스스로 확인할 것을 하나 알려줘라
@@ -161,7 +164,16 @@ export async function explainWithClaude(
     return {
       headline: parsed.headline,
       reasons: parsed.reasons.slice(0, 4),
-      action: parsed.action,
+      // 🚨 danger 의 행동 문구는 모델에게 맡기지 않는다.
+      //
+      //    실제로 났던 일: "주소창에서 사이트 주인을 확인한 후에 로그인이나
+      //    금융 정보 입력을 하세요" 라는 문장이 나왔다. 위험 판정을 내려놓고
+      //    조건부로 이용을 허용한 셈이다.
+      //
+      //    프롬프트에도 금지 규칙을 넣었지만 그것만 믿지 않는다 — 이 세션에서
+      //    모델이 규칙을 어긴 것이 네 번째다. 위험 화면에서 사용자가 취할
+      //    행동은 하나뿐이고 문구도 하나면 충분하다. 고정한다.
+      action: result.verdict === "danger" ? ACTION.danger : parsed.action,
       source: "llm",
     };
   } catch (error) {

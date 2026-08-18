@@ -55,6 +55,7 @@ verdict 값은 위 4개 문자열로 고정. `safe`라는 값을 쓰지 말 것.
 ```
 app/
   api/scan/route.ts     검사 API (Node 런타임)
+  api/kakao/route.ts    카카오톡 채널 챗봇 스킬 서버 (콜백 방식)
   page.tsx              홈
 lib/
   scanner/
@@ -72,6 +73,7 @@ lib/
     verdict.ts          시그널 → 4단계 판정
     normalize.ts        URL 정규화 + url_hash
     types.ts            공용 타입
+  kakao.ts              카톡 발화에서 주소 추출 + 답장 문구
   ratelimit.ts          IP 기준 rate limit
 bench/                  교차검증 하네스 — bench/README.md 참조
 worker/                 (Phase 3) 격리 스캔 워커 — 스크린샷 전담
